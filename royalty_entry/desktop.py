@@ -114,7 +114,7 @@ class RemoteDriver:
         previous = self.transform
         self.transform = self.tracker.locate(image)
         if not getattr(self, 'module_prepared', True):
-            self.prepare_module()
+            self.prepare_module(image)
             self.module_prepared = True
             # Maximizing the parent can move its License Manager child. Locate
             # everything again before using any calibrated field or button.
@@ -132,10 +132,12 @@ class RemoteDriver:
             return reading.normalize(image, self.profile['window_size'])
         return self.transform.normalize(image, self.profile['window_size'])
 
-    def prepare_module(self):
-        from .module_layout import module_caption, verify_maximized
+    def prepare_module(self, visible):
+        from .module_layout import module_caption
         self.log('Maximizing Mechanical Royalty Module before the license sequence…')
-        native = self.native_snapshot()
+        # At full size the visible capture already contains native-sized text.
+        # Do not require clipboard images for this common case.
+        native = visible if self.transform.scale >= .85 else self.native_snapshot()
         reading = self.read_tracker.locate(native).native_pixels(self.read_tracker.reference)
         if self.state(reading.normalize(native, self.profile['window_size'])) != 'manager':
             raise ScreenError('Close any license Properties or Financials dialogs and leave License Manager at the search screen before starting.')
@@ -157,13 +159,17 @@ class RemoteDriver:
             self.wait(.3)
             self.hotkey('x')
             self.wait()
-            active = self.native_snapshot(active=True)
-            verify_maximized(self.ocr, active, native.size)
+            after, handle, _ = capture_remote(self.profile)
+            if handle != self.handle:
+                raise ScreenError('Remote Desktop changed while maximizing the module')
+            if self.transform.scale < .85:
+                after = self.native_snapshot()
+            module_caption(self.ocr, after)
         except ValueError as exc:
             raise ScreenError(str(exc)) from exc
-        self.log('Mechanical Royalty Module is maximized. Starting the license sequence.')
+        self.log('Mechanical Royalty Module Maximize command sent. Checking License Manager…')
 
-    def native_snapshot(self, active=False):
+    def native_snapshot(self):
         """RDP's documented Ctrl+Alt+numeric-plus captures native session pixels.
 
         Require a fresh clipboard sequence, never a previous screenshot. Image
@@ -174,27 +180,37 @@ class RemoteDriver:
         import pyperclip
         # Remove any old bitmap before requesting the next one. RDP can update
         # clipboard metadata before its new image finishes arriving.
-        pyperclip.copy('Royalty Entry screen capture')
-        sequence = ctypes.windll.user32.GetClipboardSequenceNumber()
         self.check_stop()
         handle, title, _ = foreground()
         if handle != self.handle or title != self.profile['window_title']:
             raise ScreenError('Remote Desktop lost focus before screen reading')
-        self.hotkey('ctrl', 'alt', 'subtract' if active else 'add')
-        deadline = time.monotonic() + 8
-        while time.monotonic() < deadline:
-            self.wait(.1)
+        for attempt in range(3):
+            self.check_stop()
             if foreground()[0] != self.handle:
-                raise ScreenError('Remote Desktop lost focus during screen reading')
-            if ctypes.windll.user32.GetClipboardSequenceNumber() == sequence:
-                continue
-            try:
-                image = ImageGrab.grabclipboard()
-            except OSError:
-                continue
-            if isinstance(image, Image.Image):
-                return image.convert('RGB')
-        raise ScreenError('Cannot read Remote Desktop’s full-resolution screenshot. Enable clipboard image redirection in Remote Desktop and retry.')
+                raise ScreenError('Remote Desktop lost focus before screen reading')
+            pyperclip.copy('Royalty Entry screen capture')
+            # Let the outgoing text/format notification finish before asking
+            # the server for an image; otherwise it can overwrite that image.
+            self.wait(.5)
+            sequence = ctypes.windll.user32.GetClipboardSequenceNumber()
+            self.hotkey('ctrl', 'alt', 'add')
+            deadline = time.monotonic() + 8
+            while time.monotonic() < deadline:
+                self.wait(.1)
+                if foreground()[0] != self.handle:
+                    raise ScreenError('Remote Desktop lost focus during screen reading')
+                if ctypes.windll.user32.GetClipboardSequenceNumber() == sequence:
+                    continue
+                try:
+                    image = ImageGrab.grabclipboard()
+                except OSError:
+                    continue
+                if isinstance(image, Image.Image):
+                    return image.convert('RGB')
+            if attempt < 2:
+                self.log(f'Remote screenshot did not arrive; retrying ({attempt+2}/3)…')
+                self.wait(.5)
+        raise ScreenError('Remote screenshot did not arrive after 3 attempts. Clipboard images may be blocked or delayed. Use a full-size Remote Desktop view to read directly from the screen, or check RDP clipboard redirection.')
 
     def crop(self, image, key):
         box = list(self.profile['regions'][key])

@@ -41,6 +41,31 @@ def test_native_capture_ignores_stale_image_and_waits_for_fresh_clipboard(monkey
     assert events == [('ctrl', 'alt', 'add'), 'fresh image']
 
 
+def test_native_capture_retries_missing_image_after_clipboard_settles(monkeypatch):
+    import pyperclip
+    monkeypatch.setattr(pyperclip, 'copy', lambda _: None)
+    driver = desktop.RemoteDriver.__new__(desktop.RemoteDriver)
+    driver.profile, driver.handle = {'window_title': 'Remote Desktop'}, 12
+    clock, attempts, events = [0], [0], []
+    driver.check_stop, driver.log = lambda: None, lambda message: events.append(message)
+    driver.wait = lambda duration: clock.__setitem__(0, clock[0]+duration)
+    def hotkey(*keys):
+        assert clock[0] >= .5
+        attempts[0] += 1
+    driver.hotkey = hotkey
+    monkeypatch.setattr(desktop.time, 'monotonic', lambda: clock[0])
+    sequence = [0]
+    def number():
+        sequence[0] += 1
+        return sequence[0]
+    monkeypatch.setattr(desktop.ctypes, 'windll', SimpleNamespace(user32=SimpleNamespace(GetClipboardSequenceNumber=number)))
+    monkeypatch.setattr(desktop, 'foreground', lambda: (12, 'Remote Desktop', (0, 0, 1008, 711)))
+    monkeypatch.setattr(ImageGrab, 'grabclipboard', lambda: Image.new('RGB', (1920, 1080)) if attempts[0] == 2 else None)
+    assert driver.native_snapshot().size == (1920, 1080)
+    assert attempts[0] == 2
+    assert len(events) == 1 and 'retrying' in events[0]
+
+
 def test_no_screen_capture_overwrites_text_between_copy_and_paste(monkeypatch):
     import pyperclip
     driver = desktop.RemoteDriver.__new__(desktop.RemoteDriver)
