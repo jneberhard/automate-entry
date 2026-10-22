@@ -132,6 +132,7 @@ class App(tk.Tk):
         self.append('Click inside the Remote Desktop window, then wait. Processing starts automatically after your click.')
         self.append('Leave License Manager at the search results screen. Keep this app visible on your other monitor.')
         self.append('Smart sizing fits the remote session to this window; reading and clicks follow the detected display scale.')
+        self.append('The Mechanical Royalty Module is maximized first, then the license sequence begins.')
         self.append('Do not move or resize remote dialogs during the run. Hold Esc to stop.')
         self.status.set('Click inside Remote Desktop, then wait. The run will start automatically. This window stays open.')
         self.progress_bar.stop()

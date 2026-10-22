@@ -80,6 +80,7 @@ class RemoteDriver:
         self.handle = None
         self.rect = None
         self.window_prepared = False
+        self.module_prepared = False
         from .tracking import ToolbarTracker
         self.tracker = ToolbarTracker()
         self.read_tracker = ToolbarTracker()
@@ -112,6 +113,13 @@ class RemoteDriver:
         self.raw_size = image.size
         previous = self.transform
         self.transform = self.tracker.locate(image)
+        if not getattr(self, 'module_prepared', True):
+            self.prepare_module()
+            self.module_prepared = True
+            # Maximizing the parent can move its License Manager child. Locate
+            # everything again before using any calibrated field or button.
+            self.tracker.previous = self.read_tracker.previous = None
+            return self.snapshot()
         if previous is None or abs(previous.scale-self.transform.scale) > .015:
             self.log(f'License Manager display scale: {self.transform.scale:.1%}; toolbar match: {self.transform.score:.0%}. '
                      'Screen reading and clicks now use this detected scale.')
@@ -124,7 +132,38 @@ class RemoteDriver:
             return reading.normalize(image, self.profile['window_size'])
         return self.transform.normalize(image, self.profile['window_size'])
 
-    def native_snapshot(self):
+    def prepare_module(self):
+        from .module_layout import module_caption, verify_maximized
+        self.log('Maximizing Mechanical Royalty Module before the license sequence…')
+        native = self.native_snapshot()
+        reading = self.read_tracker.locate(native).native_pixels(self.read_tracker.reference)
+        if self.state(reading.normalize(native, self.profile['window_size'])) != 'manager':
+            raise ScreenError('Close any license Properties or Financials dialogs and leave License Manager at the search screen before starting.')
+        try:
+            x, y = module_caption(self.ocr, native)
+            logical = ((x-reading.x)/reading.scale, (y-reading.y)/reading.scale)
+            x, y = self.transform.point(*logical)
+            if not (0 <= x < self.raw_size[0] and 0 <= y < self.raw_size[1]):
+                raise ValueError('Mechanical Royalty Module title bar is outside the visible remote view')
+            self.check_stop()
+            if foreground()[0] != self.handle:
+                raise ScreenError('Remote Desktop lost focus before maximizing the module')
+            self.pg.click(self.rect[0]+x, self.rect[1]+y)
+            self.wait(.3)
+            # Invoke the same Maximize command as the top-right square. Unlike
+            # clicking that square blindly, this never restores an already
+            # maximized module. Alt+Space targets the main frame, not an MDI child.
+            self.hotkey('alt', 'space')
+            self.wait(.3)
+            self.hotkey('x')
+            self.wait()
+            active = self.native_snapshot(active=True)
+            verify_maximized(self.ocr, active, native.size)
+        except ValueError as exc:
+            raise ScreenError(str(exc)) from exc
+        self.log('Mechanical Royalty Module is maximized. Starting the license sequence.')
+
+    def native_snapshot(self, active=False):
         """RDP's documented Ctrl+Alt+numeric-plus captures native session pixels.
 
         Require a fresh clipboard sequence, never a previous screenshot. Image
@@ -141,7 +180,7 @@ class RemoteDriver:
         handle, title, _ = foreground()
         if handle != self.handle or title != self.profile['window_title']:
             raise ScreenError('Remote Desktop lost focus before screen reading')
-        self.hotkey('ctrl', 'alt', 'add')
+        self.hotkey('ctrl', 'alt', 'subtract' if active else 'add')
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
             self.wait(.1)
