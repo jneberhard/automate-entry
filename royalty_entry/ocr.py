@@ -51,7 +51,9 @@ class WindowsOCR:
 
     def lines(self, image, scale=3):
         from PIL import Image
-        enlarged = image.resize((image.width*scale, image.height*scale), Image.Resampling.LANCZOS)
+        from winrt.windows.media.ocr import OcrEngine
+        scale = min(scale, OcrEngine.max_image_dimension/max(image.size))
+        enlarged = image.resize((max(1, round(image.width*scale)), max(1, round(image.height*scale))), Image.Resampling.LANCZOS)
         return [Line(l.text, l.x/scale, l.y/scale, l.width/scale, l.height/scale)
                 for l in asyncio.run(asyncio.wait_for(self._read(enlarged), timeout=15))]
 

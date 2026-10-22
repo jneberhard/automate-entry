@@ -21,6 +21,7 @@ def test_live_run_preserves_partial_removals_and_source_after_failure(tmp_path, 
     book.save(source)
     original = source.read_bytes()
     exports = []
+    progress = []
 
     def export(self, destination, remove_rows, use_excel=False):
         exports.append((set(remove_rows), use_excel))
@@ -41,9 +42,11 @@ def test_live_run_preserves_partial_removals_and_source_after_failure(tmp_path, 
             pass
 
     with pytest.raises(RuntimeError, match='RDP disconnected'):
-        run(source, 'Payments', 2, 'Q3', True, tmp_path/'runs', InterruptedDriver, Event(), lambda _: None)
+        run(source, 'Payments', 2, 'Q3', True, tmp_path/'runs', InterruptedDriver, Event(), lambda _: None,
+            progress=lambda *event: progress.append(event))
     assert exports == [(set(), True), ({2, 3}, False)]
     assert source.read_bytes() == original
+    assert [(event[0], event[1]) for event in progress] == [(0, 3), (1, 3), (2, 3)]
     report = next((tmp_path/'runs').glob('*/report.csv'))
     with report.open(encoding='utf-8-sig', newline='') as file:
         statuses = [row[3] for row in list(csv.reader(file))[1:]]
@@ -61,3 +64,24 @@ def test_run_lock_excludes_second_runner_and_releases(tmp_path):
                 pytest.fail('Second run acquired the same lock')
     with RunLock(path):
         pass
+
+
+def test_progress_includes_invalid_rows_duplicates_and_finalization(tmp_path, monkeypatch):
+    source = tmp_path/'source.xlsx'
+    book = Workbook()
+    sheet = book.active
+    sheet.title = 'Payments'
+    sheet['H2'], sheet['I2'] = 'Publisher', '123'
+    sheet['H3'], sheet['I3'] = 'Publisher', '123'
+    sheet['H4'], sheet['I4'] = 'Missing license', None
+    book.save(source)
+    events = []
+
+    class MissingDriver:
+        def open_record(self, record):
+            return False
+
+    run(source, 'Payments', 2, 'Q3', False, tmp_path/'runs', MissingDriver, Event(), lambda _: None,
+        progress=lambda *event: events.append(event))
+    assert [(event[0], event[1]) for event in events] == [(0, 3), (1, 3), (2, 3), (3, 3), (3, 3)]
+    assert 'Finalizing' in events[-1][2]

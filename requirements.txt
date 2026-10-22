@@ -3,6 +3,7 @@ Pillow>=11,<13
 PyAutoGUI>=0.9.54,<1
 pyperclip>=1.9,<2
 pywin32>=311
+opencv-python-headless>=4.12,<5
 winrt-runtime>=3.2,<4
 winrt-Windows.Foundation>=3.2,<4
 winrt-Windows.Foundation.Collections>=3.2,<4

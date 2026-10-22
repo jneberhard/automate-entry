@@ -28,6 +28,18 @@ def foreground():
     rect = wintypes.RECT()
     if not user32.GetWindowRect(handle, ctypes.byref(rect)):
         raise ScreenError('Cannot read the foreground window position')
+    # GetWindowRect includes invisible Windows resize borders. Calibration and
+    # screenshots use the visible frame, so prefer its physical screen bounds.
+    try:
+        dwm = ctypes.WinDLL('dwmapi', use_last_error=True)
+        dwm.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+        dwm.DwmGetWindowAttribute.restype = ctypes.c_long
+        visible = wintypes.RECT()
+        result = dwm.DwmGetWindowAttribute(handle, 9, ctypes.byref(visible), ctypes.sizeof(visible))
+        if result == 0 and visible.right > visible.left and visible.bottom > visible.top:
+            rect = visible
+    except (AttributeError, OSError):
+        pass
     return handle, title.value, (rect.left, rect.top, rect.right, rect.bottom)
 
 
@@ -36,9 +48,6 @@ def capture_remote(profile):
     handle, title, rect = foreground()
     if title != profile['window_title']:
         raise ScreenError('Remote Desktop must be the foreground window. No further input was sent.')
-    size = (rect[2]-rect[0], rect[3]-rect[1])
-    if list(size) != profile['window_size']:
-        raise ScreenError(f'Remote Desktop is {size[0]}×{size[1]}; calibration expects {profile["window_size"]}. Restore its size or recalibrate.')
     return ImageGrab.grab(bbox=rect, all_screens=True), handle, rect
 
 
@@ -70,6 +79,12 @@ class RemoteDriver:
         self.record = None
         self.handle = None
         self.rect = None
+        self.window_prepared = False
+        from .tracking import ToolbarTracker
+        self.tracker = ToolbarTracker()
+        self.read_tracker = ToolbarTracker()
+        self.transform = None
+        self.raw_size = None
 
     def check_stop(self):
         if self.stop.is_set():
@@ -86,14 +101,73 @@ class RemoteDriver:
 
     def snapshot(self):
         self.check_stop()
+        if not self.window_prepared:
+            from .window_layout import prepare_remote_window
+            prepare_remote_window(self.profile, self.wait, self.log)
+            self.window_prepared = True
         image, handle, rect = capture_remote(self.profile)
         if self.handle is not None and handle != self.handle:
             raise ScreenError('The Remote Desktop window changed during the run')
         self.handle, self.rect = handle, rect
-        return image
+        self.raw_size = image.size
+        previous = self.transform
+        self.transform = self.tracker.locate(image)
+        if previous is None or abs(previous.scale-self.transform.scale) > .015:
+            self.log(f'License Manager display scale: {self.transform.scale:.1%}; toolbar match: {self.transform.score:.0%}. '
+                     'Screen reading and clicks now use this detected scale.')
+        if self.transform.scale < .85:
+            image = self.native_snapshot()
+            reading = self.read_tracker.locate(image)
+            reading = reading.native_pixels(self.read_tracker.reference)
+            if reading.scale < .85:
+                raise ScreenError('Remote Desktop returned a reduced snapshot. Enable clipboard image redirection and retry.')
+            return reading.normalize(image, self.profile['window_size'])
+        return self.transform.normalize(image, self.profile['window_size'])
+
+    def native_snapshot(self):
+        """RDP's documented Ctrl+Alt+numeric-plus captures native session pixels.
+
+        Require a fresh clipboard sequence, never a previous screenshot. Image
+        clipboard redirection supplies the pixels even when Smart sizing shrinks
+        the displayed session. Click coordinates still use the visible toolbar.
+        """
+        from PIL import Image, ImageGrab
+        import pyperclip
+        # Remove any old bitmap before requesting the next one. RDP can update
+        # clipboard metadata before its new image finishes arriving.
+        pyperclip.copy('Royalty Entry screen capture')
+        sequence = ctypes.windll.user32.GetClipboardSequenceNumber()
+        self.check_stop()
+        handle, title, _ = foreground()
+        if handle != self.handle or title != self.profile['window_title']:
+            raise ScreenError('Remote Desktop lost focus before screen reading')
+        self.hotkey('ctrl', 'alt', 'add')
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            self.wait(.1)
+            if foreground()[0] != self.handle:
+                raise ScreenError('Remote Desktop lost focus during screen reading')
+            if ctypes.windll.user32.GetClipboardSequenceNumber() == sequence:
+                continue
+            try:
+                image = ImageGrab.grabclipboard()
+            except OSError:
+                continue
+            if isinstance(image, Image.Image):
+                return image.convert('RGB')
+        raise ScreenError('Cannot read Remote Desktop’s full-resolution screenshot. Enable clipboard image redirection in Remote Desktop and retry.')
 
     def crop(self, image, key):
-        return image.crop(self.profile['regions'][key])
+        box = list(self.profile['regions'][key])
+        if key == 'result_licenses':
+            # Keep the complete first digit. Some legacy grid themes draw the
+            # number closer to the row icon than the calibration reference.
+            box[0] = max(0, box[0]-16)
+        # Leave extra white-space at the right of numeric fields so a one-pixel
+        # interpolation shift cannot cut off the last digit at smaller scales.
+        if key in {'financials_amounts', 'entry_amount', 'details_balance', 'financials_balance'}:
+            box[2] += 8
+        return image.crop(box)
 
     def text(self, image, key):
         return self.ocr.text(self.crop(image, key)).strip()
@@ -141,28 +215,72 @@ class RemoteDriver:
     def click(self, point, stage, clicks=1):
         self.expect(stage)
         x, y = self.profile['points'][point] if isinstance(point, str) else point
+        x, y = self.transform.point(x, y)
+        if not (0 <= x < self.raw_size[0] and 0 <= y < self.raw_size[1]):
+            raise ScreenError('The required control is outside the visible remote view. Check Smart sizing and bring the dialog fully into view.')
         self.check_stop()
         self.pg.click(self.rect[0]+x, self.rect[1]+y, clicks=clicks, interval=0.15)
         self.wait()
 
+    @staticmethod
+    def hotkey(*keys):
+        from .keyboard import chord
+        chord(*keys)
+
     def keys(self, stage, *keys):
         self.expect(stage)
-        self.pg.hotkey(*keys)
+        self.hotkey(*keys)
         self.wait()
 
     def paste(self, point, value, stage, region):
         import pyperclip
         self.click(point, stage)
-        self.keys(stage, 'ctrl', 'a')
+        self.expect(stage)
+        # Legacy License Manager combo/edit controls do not all implement Ctrl+A.
+        self.hotkey('home')
+        self.hotkey('shift', 'end')
         pyperclip.copy(value)
-        self.keys(stage, 'ctrl', 'v')
-        # Remove the insertion caret before OCR (otherwise Q3| may be read as Q31).
-        self.keys(stage, 'tab')
-        image = self.expect(stage)
-        actual = self.text(image, region)
-        matches = money(actual) == money(value) if region == 'entry_amount' else normalized(actual) == normalized(value)
+        # A screen check may use the image clipboard. Paste immediately after
+        # copying text, without another capture replacing that text first.
+        self.check_stop()
+        if foreground()[0] != self.handle:
+            raise ScreenError('Remote Desktop lost focus before pasting')
+        self.hotkey('ctrl', 'v')
+        self.wait()
+        # Read back the editable field through RDP's text clipboard. Thin edit
+        # borders and carets can look like extra digits to OCR, even at native
+        # resolution. Exact clipboard text avoids accepting a fuzzy number.
+        self.check_stop()
+        if foreground()[0] != self.handle:
+            raise ScreenError('Remote Desktop lost focus before verifying pasted text')
+        self.hotkey('home')
+        self.hotkey('shift', 'end')
+        marker = 'Royalty Entry awaiting field text'
+        pyperclip.copy(marker)
+        self.hotkey('ctrl', 'c')
+        deadline = time.monotonic() + 8
+        actual = marker
+        matches = False
+        while time.monotonic() < deadline:
+            self.wait(.1)
+            if foreground()[0] != self.handle:
+                raise ScreenError('Remote Desktop lost focus while verifying pasted text')
+            actual = pyperclip.paste()
+            # During RDP redirection the clipboard can briefly report empty or
+            # an older text value before the selected remote text arrives.
+            if actual != marker and actual.strip():
+                try:
+                    matches = money(actual) == money(value) if region == 'entry_amount' else actual.strip() == value.strip()
+                except (ValueError, ArithmeticError):
+                    matches = False
+            if matches:
+                break
         if not matches:
-            raise ScreenError(f'Pasted text could not be verified in {region}. Check RDP clipboard redirection.')
+            raise ScreenError(f'Pasted text could not be verified in {region}: expected {value!r}, read {actual!r}. Check RDP clipboard redirection.')
+        # Remove the insertion caret before OCR (otherwise Q3| may be read as Q31).
+        self.hotkey('tab')
+        self.wait()
+        self.expect(stage)
 
     def table(self, image, left_key, right_key):
         a, b = self.profile['regions'][left_key], self.profile['regions'][right_key]
@@ -204,7 +322,7 @@ class RemoteDriver:
         if int(match[1]) == 0:
             return False
         for image, rows in self.pages('manager', 'result_focus', 'result_licenses', 'result_publishers'):
-            matches = [(a, b) for a, b in rows if a.text.strip() == record.license
+            matches = [(a, b) for a, b in rows if re.search(r'(?<!\d)' + re.escape(record.license) + r'(?!\d)', a.text)
                        and normalized(b.text) == normalized(record.publisher)]
             if len(matches) > 1:
                 raise ScreenError('Multiple identical license/publisher results need manual review')

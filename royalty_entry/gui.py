@@ -9,6 +9,7 @@ from tkinter.scrolledtext import ScrolledText
 from .profile import load_profile
 from .workbook import sheet_names
 from .paths import asset_root, data_root, initialize_data
+from .start_gate import RemoteClickGate
 
 
 ROOT = data_root()
@@ -22,12 +23,17 @@ class App(tk.Tk):
         icon = asset_root() / 'assets' / 'royalty-entry.ico'
         if icon.exists():
             self.iconbitmap(str(icon))
-        self.geometry('820x720')
-        self.minsize(760, 660)
+        width = min(820, max(620, self.winfo_screenwidth()-80))
+        height = min(720, max(580, self.winfo_screenheight()-120))
+        self.geometry(f'{width}x{height}+20+20')
+        self.minsize(min(760, width), min(660, height))
         self.option_add('*Font', '{Segoe UI} 10')
         self.messages = queue.Queue()
         self.stop = threading.Event()
         self.busy = False
+        self.waiting_for_remote = False
+        self.remote_wait_job = None
+        self.progress_total = 0
         self.source = tk.StringVar()
         self.sheet = tk.StringVar()
         self.reference = tk.StringVar()
@@ -73,6 +79,10 @@ class App(tk.Tk):
         self.stop_button.pack(side='left', padx=8)
         ttk.Label(buttons, text='Hold Esc to stop while Remote Desktop is focused.').pack(side='left', padx=8)
         ttk.Label(panel, textvariable=self.status, wraplength=750).pack(anchor='w', pady=(0, 8))
+        self.progress_label = tk.StringVar(value='Ready')
+        self.progress_bar = ttk.Progressbar(panel, mode='determinate', maximum=1, value=0)
+        self.progress_bar.pack(fill='x', pady=(0, 4))
+        ttk.Label(panel, textvariable=self.progress_label).pack(anchor='w', pady=(0, 8))
         self.log = ScrolledText(panel, height=12, state='disabled', font=('Consolas', 9))
         self.log.pack(fill='both', expand=True)
         self.protocol('WM_DELETE_WINDOW', self.close)
@@ -119,11 +129,49 @@ class App(tk.Tk):
         settings = (self.source.get(), self.sheet.get(), first, self.reference.get(), self.live.get())
         self.stop.clear()
         self.set_busy(True)
-        self.append('Switch to Remote Desktop within 6 seconds. Leave License Manager at the search results screen.')
+        self.append('Click inside the Remote Desktop window, then wait. Processing starts automatically after your click.')
+        self.append('Leave License Manager at the search results screen. Keep this app visible on your other monitor.')
+        self.append('Smart sizing fits the remote session to this window; reading and clicks follow the detected display scale.')
         self.append('Do not move or resize remote dialogs during the run. Hold Esc to stop.')
-        self.status.set('Starting in 6 seconds…')
-        self.iconify()
-        self.after(6000, lambda: threading.Thread(target=self.worker, args=(settings, profile, test), daemon=True).start())
+        self.status.set('Click inside Remote Desktop, then wait. The run will start automatically. This window stays open.')
+        self.progress_bar.stop()
+        self.progress_bar.configure(mode='determinate', maximum=1, value=0)
+        self.progress_total = 0
+        self.progress_label.set('Waiting for your click in Remote Desktop…')
+        import ctypes
+        state = ctypes.windll.user32.GetAsyncKeyState(0x01)
+        self.click_gate = RemoteClickGate(profile['window_title'], bool(state & 0x8000))
+        self.waiting_for_remote = True
+        self.remote_wait_job = self.after(60, lambda: self.wait_for_remote_click(settings, profile, test))
+
+    def wait_for_remote_click(self, settings, profile, test):
+        self.remote_wait_job = None
+        if not self.waiting_for_remote:
+            return
+        import ctypes
+        from .desktop import foreground
+        if self.stop.is_set() or ctypes.windll.user32.GetAsyncKeyState(0x1B) & 0x8000:
+            self.request_stop()
+            return
+        try:
+            _, title, _ = foreground()
+            state = ctypes.windll.user32.GetAsyncKeyState(0x01)
+            clicked = self.click_gate.update(title, bool(state & 0x8000), bool(state & 1))
+        except Exception as exc:
+            self.waiting_for_remote = False
+            self.set_busy(False)
+            self.status.set(f'Could not detect Remote Desktop: {exc}')
+            return
+        if clicked:
+            self.waiting_for_remote = False
+            self.status.set('Remote Desktop selected. Processing—please wait and leave the mouse and keyboard alone.')
+            self.progress_bar.configure(mode='indeterminate')
+            self.progress_bar.start(12)
+            self.progress_label.set('Checking License Manager…' if test else 'Preparing workbook…')
+            self.append('Remote Desktop click detected. Starting '+('screen test.' if test else 'run.'))
+            threading.Thread(target=self.worker, args=(settings, profile, test), daemon=True).start()
+            return
+        self.remote_wait_job = self.after(60, lambda: self.wait_for_remote_click(settings, profile, test))
 
     def worker(self, settings, profile, test):
         from .desktop import RemoteDriver
@@ -136,9 +184,13 @@ class App(tk.Tk):
                 driver = driver_factory()
                 image = driver.expect('manager')
                 log('Search screen recognized. Search value: '+driver.text(image, 'search_value'))
+                for key in ('result_licenses', 'result_publishers'):
+                    lines = driver.ocr.lines(driver.crop(image, key))
+                    log(key+': '+repr([line.text for line in lines[:10]]))
                 result = 'Screen test passed. Run a preview before enabling payments.'
             else:
-                folder = run(*settings[:4], settings[4], ROOT/'runs', driver_factory, self.stop, log)
+                progress = lambda completed, total, detail: self.messages.put(('progress', (completed, total, detail)))
+                folder = run(*settings[:4], settings[4], ROOT/'runs', driver_factory, self.stop, log, progress=progress)
                 result = f'{"Live run" if settings[4] else "Preview"} complete. Results: {folder}'
             self.messages.put(('done', result))
         except Exception as exc:
@@ -148,8 +200,23 @@ class App(tk.Tk):
         try:
             while True:
                 kind, message = self.messages.get_nowait()
+                if kind == 'progress':
+                    completed, total, detail = message
+                    self.progress_total = total
+                    self.progress_bar.stop()
+                    self.progress_bar.configure(mode='determinate', maximum=max(1, total), value=completed)
+                    percent = round(100*completed/total) if total else 0
+                    self.progress_label.set(f'{completed} of {total} rows processed ({percent}%)')
+                    self.status.set(detail)
+                    continue
                 self.append(message)
                 if kind in {'done', 'error'}:
+                    self.progress_bar.stop()
+                    if kind == 'done':
+                        self.progress_bar.configure(mode='determinate', maximum=max(1, self.progress_total), value=max(1, self.progress_total))
+                        self.progress_label.set(f'Complete—{self.progress_total} rows processed' if self.progress_total else 'Screen test complete')
+                    else:
+                        self.progress_label.set('Stopped—see the message below and run report for details')
                     self.set_busy(False)
                     self.status.set(message)
                     self.deiconify()
@@ -161,6 +228,17 @@ class App(tk.Tk):
 
     def request_stop(self):
         self.stop.set()
+        if self.waiting_for_remote:
+            self.waiting_for_remote = False
+            if self.remote_wait_job is not None:
+                self.after_cancel(self.remote_wait_job)
+                self.remote_wait_job = None
+            self.set_busy(False)
+            self.progress_bar.stop()
+            self.progress_label.set('Cancelled before processing started')
+            self.status.set('Run cancelled. No processing was started.')
+            self.append('Cancelled while waiting for the Remote Desktop click.')
+            return
         self.status.set('Stopping after the current check…')
 
     def close(self):
@@ -231,7 +309,6 @@ class Calibration(tk.Toplevel):
         self.scale = 1
         self.start_point = None
         self.mark = None
-        self.dirty_size = False
         self.updated = set()
         self.note = tk.StringVar(value='The initial layout comes from your demonstration. Capture a step only if its fields need adjusting.')
         ttk.Label(self, textvariable=self.note, wraplength=1150).pack(anchor='w', padx=14, pady=8)
@@ -270,11 +347,9 @@ class Calibration(tk.Toplevel):
             _, title, rect = foreground()
             if title != self.profile['window_title']:
                 raise ValueError('Focus the Remote Desktop window during the countdown.')
-            size = [rect[2]-rect[0], rect[3]-rect[1]]
-            if size != self.profile['window_size']:
-                self.dirty_size = True
-                self.profile['window_size'] = size
-            self.image, _, _ = capture_remote(self.profile)
+            raw, _, _ = capture_remote(self.profile)
+            from .tracking import ToolbarTracker
+            self.image = ToolbarTracker().locate(raw).normalize(raw, self.profile['window_size'])
             self.scale = min(1100/self.image.width, 700/self.image.height, 1)
             display = self.image.resize((round(self.image.width*self.scale), round(self.image.height*self.scale)))
             self.photo = ImageTk.PhotoImage(display)
@@ -339,9 +414,6 @@ class Calibration(tk.Toplevel):
         self.show_selection()
 
     def save(self):
-        if self.dirty_size and len(self.updated) != len(self.fields):
-            messagebox.showerror('Finish calibration', 'The window size changed. Set every field across all six screens before saving, or restore the original size.', parent=self)
-            return
         try:
             PROFILE.parent.mkdir(exist_ok=True)
             temp = PROFILE.with_suffix('.tmp.json')

@@ -5,6 +5,39 @@ from royalty_entry.ocr import Line
 from royalty_entry.profile import DEFAULT, load_profile
 
 
+@pytest.mark.parametrize('dwm_result,expected', [(0, (0, 0, 1907, 1032)), (-1, (-7, 0, 1914, 1039))])
+def test_visible_window_bounds_exclude_invisible_resize_border(monkeypatch, dwm_result, expected):
+    from royalty_entry import desktop
+
+    class Call:
+        def __init__(self, function):
+            self.function = function
+
+        def __call__(self, *args):
+            return self.function(*args)
+
+    def window_text(handle, text, count):
+        text.value = 'Remote Desktop'
+        return len(text.value)
+
+    def window_rect(handle, pointer):
+        pointer._obj.left, pointer._obj.top = -7, 0
+        pointer._obj.right, pointer._obj.bottom = 1914, 1039
+        return 1
+
+    def visible_rect(handle, attribute, pointer, size):
+        assert attribute == 9
+        pointer._obj.left, pointer._obj.top = 0, 0
+        pointer._obj.right, pointer._obj.bottom = 1907, 1032
+        return dwm_result
+
+    from types import SimpleNamespace
+    user32 = SimpleNamespace(GetForegroundWindow=Call(lambda: 1), GetWindowTextW=Call(window_text), GetWindowRect=Call(window_rect))
+    dwm = SimpleNamespace(DwmGetWindowAttribute=Call(visible_rect))
+    monkeypatch.setattr(desktop.ctypes, 'WinDLL', lambda name, **kwargs: user32 if name == 'user32' else dwm)
+    assert desktop.foreground() == (1, 'Remote Desktop', expected)
+
+
 def test_independent_column_rows_match_by_height():
     types = [Line('PAYMENT OF ROYALTIES', 1, 0, 200, 12), Line('TRANSFER', 1, 17, 80, 12)]
     amounts = [Line('-0.9', 1, 18, 24, 11), Line('-1.01', 1, 1, 30, 11)]

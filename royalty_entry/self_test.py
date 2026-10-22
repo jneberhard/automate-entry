@@ -34,6 +34,14 @@ def main(args):
         if not checks['icon']:
             raise RuntimeError('Application icon is missing from the bundle')
         checks['default_profile'] = load_profile(asset_root()/'no-profile.json')['window_size']
+        from .tracking import ToolbarTracker
+        toolbar = Image.open(asset_root()/'assets'/'license-toolbar.png').convert('RGB')
+        scene = Image.new('RGB', (1008, 711), '#eeeeee')
+        scene.paste(toolbar.resize((225, 19)), (220, 95))
+        found = ToolbarTracker().locate(scene)
+        if abs(found.scale-.5) > .01:
+            raise RuntimeError('Scaled-toolbar tracking test failed')
+        checks['toolbar_scale'] = found.scale
         checks['ok'] = True
     except Exception as exc:
         import traceback

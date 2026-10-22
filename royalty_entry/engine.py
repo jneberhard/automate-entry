@@ -99,7 +99,7 @@ def process_records(records, driver, reference, journal, live, report, stop):
     return removed
 
 
-def run(source, sheet, first_row, reference, live, root, driver_factory, stop, log):
+def run(source, sheet, first_row, reference, live, root, driver_factory, stop, log, progress=None):
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     with RunLock(root / 'run.lock'):
@@ -109,6 +109,10 @@ def run(source, sheet, first_row, reference, live, root, driver_factory, stop, l
         workbook = Workbook(Path(source), sheet, first_row)
         if not workbook.records:
             raise ValueError('No valid license/publisher rows were found. Check the sheet and first data row.')
+        total = len(workbook.records) + len(workbook.invalid)
+        completed = 0
+        notify = progress or (lambda *_: None)
+        notify(0, total, 'Preparing workbook and run report…')
         folder = root / datetime.now().strftime('%Y%m%d-%H%M%S-%f')
         folder.mkdir()
         destination = folder / (Path(source).stem + '-filtered' + Path(source).suffix)
@@ -124,6 +128,7 @@ def run(source, sheet, first_row, reference, live, root, driver_factory, stop, l
                 writer.writerow(['Original Excel row', 'License', 'Publisher', 'Status', 'Payment amount', 'Detail'])
 
                 def report(record, status, amount, detail):
+                    nonlocal completed
                     # Keep CSV fields as literal text if opened in Excel.
                     def safe(value):
                         text = str(value)
@@ -137,9 +142,13 @@ def run(source, sheet, first_row, reference, live, root, driver_factory, stop, l
                     if status == 'duplicate' and 'first outcome: remove_' in detail:
                         removed.add(record.row)
                     log(f'Row {record.row}: {record.license} / {record.publisher}: {status}' + (f' ({amount})' if amount != '' else ''))
+                    completed += 1
+                    notify(completed, total, f'Processed Excel row {record.row}: {record.license} / {record.publisher} ({status})')
 
                 for row, reason in workbook.invalid:
                     writer.writerow([row, '', '', 'review', '', reason])
+                    completed += 1
+                    notify(completed, total, f'Excel row {row} kept for review: {reason}')
                 driver = driver_factory()
                 try:
                     process_records(workbook.records, driver, reference, journal, live, report, stop)
@@ -151,6 +160,8 @@ def run(source, sheet, first_row, reference, live, root, driver_factory, stop, l
         finally:
             journal.close()
         # Preview always retains the original rows; only the report describes proposed removals.
+        if not failure:
+            notify(completed, total, 'Finalizing workbook and report—please wait…')
         if live and removed:
             try:
                 workbook.save_filtered(destination, removed)

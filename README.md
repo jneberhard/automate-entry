@@ -13,11 +13,13 @@ For source development, **Start.cmd** still launches the Python version. If movi
 1. Save and close the source Excel workbook. Choose its `.xlsx` or `.xlsm` file.
 2. Choose the worksheet, enter the reference, and check the first data row (defaults to 2 for a header in row 1).
 3. Keep Remote Desktop connected and visible, with License Manager at its search screen. Keep Search set to **Number**, all required status checkboxes selected, and Song/Publisher filters empty.
-4. Click **Test search screen**, then focus Remote Desktop during the six-second countdown.
+4. Click **Test search screen**, then click inside Remote Desktop. The app stays open and waits for that click before checking the screen.
 5. Leave **Enable saving payments…** unchecked for the first run. **Start run** performs a preview: it searches licenses, reads balances and transactions, closes the dialogs and writes a CSV report. It does not add payments or delete spreadsheet rows.
 6. Review the report against License Manager. Then enable saving and start a live run with the same saved source file, worksheet and reference.
 
-During a run, leave the mouse and keyboard alone. **Hold Esc** to stop, or switch to the program and press **Stop**. Switching focus away from Remote Desktop also causes the next screen check to fail and stop. The program does not take over your computer immediately on launch.
+After **Start run**, the app stays visible and displays instructions to click inside Remote Desktop and wait. There is no countdown: processing starts automatically after that click is released. Switching focus with the keyboard alone does not start the run. Keep Royalty Entry on your other monitor so its status and progress bar remain visible. The bar shows preparation activity, then the number and percentage of worksheet rows processed, including duplicate and review rows. It also identifies final workbook/report preparation; a stopped run retains its partial progress.
+
+During a run, leave the mouse and keyboard alone. **Hold Esc** to stop, or switch to the program and press **Stop**. Stop also cancels a run that is still waiting for your Remote Desktop click. Switching focus away from Remote Desktop during processing causes the next screen check to fail and stop. The program does not take over your computer immediately on launch.
 
 ## Rules
 
@@ -35,7 +37,11 @@ During a run, leave the mouse and keyboard alone. **Hold Esc** to stop, or switc
 
 Coordinates are relative to the Remote Desktop window; it can be on either monitor, including a monitor with negative desktop coordinates. Keep the entire Remote Desktop window on screen. Local Excel does not need to be visible while processing because the program reads the selected saved file directly.
 
-The starting profile uses the **1907 × 1032** Remote Desktop window and dialog locations observed during the demonstration. It is a starting profile, not proof that the local Win32 window bounds and screenshot bounds are identical. The screen test checks those bounds. If the window size differs or the remote dialogs move, use **Screen calibration…** before continuing. The program refuses a different window size rather than scaling its clicks blindly.
+The **1907 × 1032** profile is now a logical reference image, not a required monitor or window size. At startup, the app enables Remote Desktop’s **Smart sizing** option, which fits the full remote session into your current window. It does not enlarge the window or require a larger monitor.
+
+On each capture, graphical matching locates License Manager’s toolbar and measures its displayed scale and offset. Clicks are mapped back with that measured transform and the actual Remote Desktop window position. When the displayed view is reduced below 85%, the app uses Remote Desktop’s full-resolution clipboard snapshot for text recognition, with a separate transform for reading. This requires clipboard image redirection. Each snapshot must be fresh; stale clipboard images are rejected. The app uses the clipboard during processing, so its previous contents are replaced. Moving to another monitor or resizing the view does not require multiplying the whole window’s dimensions by an assumed ratio. The app checks that the target control is within the visible view before clicking it. An uncertain or ambiguous toolbar match stops processing.
+
+Keep License Manager’s toolbar visible inside the remote session. Smart sizing may also be enabled manually from the Remote Desktop title-bar menu. If the remote dialogs themselves are rearranged relative to the original layout, use **Screen calibration…**; calibration is captured in the same logical reference space. Reduced on-screen text is read from the native remote snapshot rather than enlarged from the tiny displayed text. Unreadable native text or unavailable image redirection stops the run. Review a preview at the intended window size before enabling payments.
 
 The calibration editor displays a static capture. Open each screen yourself, click **Capture Remote Desktop in 5 seconds**, and focus Remote Desktop. Then pick each field in the editor and draw its text rectangle or click its button center on the picture. These selections do not click the remote app. The screens are:
 
@@ -46,7 +52,7 @@ The calibration editor displays a static capture. Open each screen yourself, cli
 5. Financial Transaction entry (`entry_`, `type_button`).
 6. Transaction Types (`chooser_`).
 
-For each pair of table columns, draw boxes with **exactly the same top and bottom** and include only data rows, without headings or the scrollbar. The `details_label` box should contain only `Provisional Balance:`. Title boxes must contain the title text, excluding icons and close buttons. The `entry_type` and `general_publisher` boxes should exclude their icons. Give amount boxes enough space to include the minus sign and every digit. If changing the window size, all fields must be recalibrated.
+For each pair of table columns, draw boxes with **exactly the same top and bottom** and include only data rows, without headings or the scrollbar. The `details_label` box should contain only `Provisional Balance:`. Title boxes must contain the title text, excluding icons and close buttons. The `entry_type` and `general_publisher` boxes should exclude their icons. Give amount boxes enough space to include the minus sign and every digit. Merely changing the local Remote Desktop window size does not require recalibrating these logical fields.
 
 Do not move, resize or reorder remote windows after calibration. If you opened an entry for calibration, cancel it yourself when done. Test again, then preview. OCR can misread small text: review the first preview against the real screens before enabling live entries. No full live run has been validated yet.
 

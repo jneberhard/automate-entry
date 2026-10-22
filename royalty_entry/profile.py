@@ -1,7 +1,7 @@
 """Window-relative regions observed during the user's demonstration.
 
-Coordinates are relative to the complete Remote Desktop window, not a monitor.
-The application refuses a different window size until a profile is calibrated.
+Coordinates describe the canonical reference image. Runtime toolbar matching
+maps that image to the current Remote Desktop scale and position.
 """
 import json
 from pathlib import Path
