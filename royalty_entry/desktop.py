@@ -225,6 +225,9 @@ class RemoteDriver:
         return image.crop(box)
 
     def text(self, image, key):
+        if key in {'details_balance', 'financials_balance', 'entry_amount'}:
+            from .amount_ocr import read_amount
+            return format(read_amount(self.ocr, self.crop(image, key)), 'f')
         return self.ocr.text(self.crop(image, key)).strip()
 
     def state(self, image):

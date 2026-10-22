@@ -65,6 +65,8 @@ class App(tk.Tk):
         self.calibrate.pack(side='left')
         self.test = ttk.Button(tools, text='Test search screen', command=lambda: self.start(test=True))
         self.test.pack(side='left', padx=8)
+        self.balance_test = ttk.Button(tools, text='Read displayed balance', command=lambda: self.start(test='balance'))
+        self.balance_test.pack(side='left', padx=(0, 8))
         self.recovery = ttk.Button(tools, text='Interrupted entries…', command=self.recover)
         self.recovery.pack(side='left')
         ttk.Checkbutton(panel, text='Enable saving payments and removing rejected rows in the workbook copy',
@@ -109,7 +111,7 @@ class App(tk.Tk):
 
     def set_busy(self, value):
         self.busy = value
-        for button in (self.browse, self.calibrate, self.test, self.recovery, self.start_button):
+        for button in (self.browse, self.calibrate, self.test, self.balance_test, self.recovery, self.start_button):
             button.configure(state='disabled' if value else 'normal')
         self.stop_button.configure(state='normal' if value else 'disabled')
 
@@ -130,9 +132,11 @@ class App(tk.Tk):
         self.stop.clear()
         self.set_busy(True)
         self.append('Click inside the Remote Desktop window, then wait. Processing starts automatically after your click.')
-        self.append('Leave License Manager at the search results screen. Keep this app visible on your other monitor.')
+        self.append(('Leave the license Details tab open. This check only reads its Provisional Balance.' if test == 'balance'
+                     else 'Leave License Manager at the search results screen. Keep this app visible on your other monitor.'))
         self.append('Smart sizing fits the remote session to this window; reading and clicks follow the detected display scale.')
-        self.append('The Mechanical Royalty Module is maximized first, then the license sequence begins.')
+        if test != 'balance':
+            self.append('The Mechanical Royalty Module is maximized first, then the license sequence begins.')
         self.append('Do not move or resize remote dialogs during the run. Hold Esc to stop.')
         self.status.set('Click inside Remote Desktop, then wait. The run will start automatically. This window stays open.')
         self.progress_bar.stop()
@@ -181,7 +185,12 @@ class App(tk.Tk):
         try:
             def driver_factory():
                 return RemoteDriver(profile, self.stop, log)
-            if test:
+            if test == 'balance':
+                driver = driver_factory()
+                driver.module_prepared = True  # A read-only check of the already open Details tab.
+                value = driver.balance('details', 'details_balance')
+                result = f'Provisional Balance: {value:.2f}. Read-only check passed; no entries or workbook changes made.'
+            elif test:
                 driver = driver_factory()
                 image = driver.expect('manager')
                 log('Search screen recognized. Search value: '+driver.text(image, 'search_value'))

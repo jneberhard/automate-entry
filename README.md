@@ -30,6 +30,7 @@ During a run, leave the mouse and keyboard alone. **Hold Esc** to stop, or switc
 - Exactly one Transfer: add **PAYMENT OF ROYALTIES**, with amount **Transfer − 0.01**, and the entered reference. Preserve the form's default Date and Royalty Period, as demonstrated.
 - Select the type in **Transaction Types**, click its OK, then enter the amount/reference. Save with the three OK buttons: transaction, Financial Transactions, license Properties.
 - Verify the updated balance in both Financial Transactions and Details before considering the pair complete.
+- Single-value monetary fields use enlarged grayscale and contrast readings to handle short ClearType numbers. At least two readings must agree, the displayed two-decimal format must be present, and conflicting signs or digits stop processing. Balances are still checked in two separate screen captures. **Read displayed balance** checks an already open Details tab without adding entries or editing the workbook.
 - A missing exact license/publisher match or invalid input row stays in the output for review. An unreadable or unexpected screen stops the run; the program does not guess a financial value or assume that OCR silence means no Transfer.
 - Duplicate rows remain for paid pairs. All rows of rejected duplicate pairs are removed from the output copy. The original workbook is never edited.
 
