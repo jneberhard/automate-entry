@@ -218,9 +218,17 @@ class RemoteDriver:
             # Keep the complete first digit. Some legacy grid themes draw the
             # number closer to the row icon than the calibration reference.
             box[0] = max(0, box[0]-16)
+        if key in {'chooser_names', 'entry_type'}:
+            # The legacy list can draw text left of the calibrated inset.
+            # Include the complete first letter without including its icon.
+            box[0] = max(0, box[0]-4)
         # Leave extra white-space at the right of numeric fields so a one-pixel
         # interpolation shift cannot cut off the last digit at smaller scales.
-        if key in {'financials_amounts', 'entry_amount', 'details_balance', 'financials_balance'}:
+        if key == 'financials_amounts':
+            # The numeric grid ends here: expanding this crop includes a
+            # vertical separator that OCR can append as an extra digit.
+            box[2] -= 2
+        if key in {'entry_amount', 'details_balance', 'financials_balance'}:
             box[2] += 8
         return image.crop(box)
 
@@ -344,8 +352,54 @@ class RemoteDriver:
         a, b = self.profile['regions'][left_key], self.profile['regions'][right_key]
         if a[1] != b[1] or a[3] != b[3]:
             raise ScreenError('Table column regions must have the same top and bottom')
-        return aligned_rows(self.ocr.lines(self.crop(image, left_key)),
-                            self.ocr.lines(self.crop(image, right_key)))
+        left = self.ocr.lines(self.crop(image, left_key))
+        right = self.ocr.lines(self.crop(image, right_key))
+        try:
+            return aligned_rows(left, right)
+        except ScreenError:
+            # A narrow amount column may lose a short value when the entire
+            # column is recognized at once. Retry with contrast and whitespace
+            # while retaining coordinates, so every row must still align.
+            from PIL import ImageOps
+            from .ocr import Line
+            for scale in (4, 6):
+                columns = []
+                for key in (left_key, right_key):
+                    gray = self.crop(image, key).convert('L')
+                    prepared = ImageOps.expand(gray, border=12, fill='white').convert('RGB')
+                    columns.append([Line(line.text, line.x-12, line.y-12, line.width, line.height)
+                                    for line in self.ocr.lines(prepared, scale=scale)])
+                try:
+                    rows = aligned_rows(*columns)
+                except ScreenError:
+                    continue
+                if rows:
+                    return rows
+            if right_key == 'financials_amounts' and left and len(right) < len(left):
+                # Whole-column OCR can omit the short white amount in the
+                # selected blue row. Read each cell inside its type's vertical
+                # bounds instead; never associate an amount from another row.
+                from .amount_ocr import read_table_amount
+                column = self.crop(image, right_key)
+                rows = []
+                centers = [line.y+line.height/2 for line in left]
+                if any(abs(y-z) < 12 for i, y in enumerate(centers) for z in centers[i+1:]):
+                    raise ScreenError('Financial type rows overlap; cannot isolate amounts')
+                for line in left:
+                    if normalized(line.text) != 'transfer':
+                        rows.append((line, Line('', 0, line.y, column.width, line.height)))
+                        continue
+                    center = line.y+line.height/2
+                    cell = column.crop((0, max(0, round(center-7)), column.width,
+                                        min(column.height, round(center+8))))
+                    try:
+                        value = read_table_amount(self.ocr, cell)
+                    except ValueError as exc:
+                        raise ScreenError(f'Cannot read amount beside {line.text!r} at table y={center:.1f}: {exc}') from exc
+                    rows.append((line, Line(str(value), 0, line.y, column.width, line.height)))
+                return rows
+            raise ScreenError(f'Table columns could not be aligned: {left_key} / {right_key}; '
+                              f'initial OCR counts {len(left)} / {len(right)}')
 
     def pages(self, stage, focus, left_key, right_key):
         self.click(focus, stage)
@@ -389,9 +443,12 @@ class RemoteDriver:
                 box = self.profile['regions']['result_licenses']
                 self.click((box[0]+50, round(box[1]+line.y+line.height/2)), 'manager', clicks=2)
                 image = self.ready('general')
-                publisher = re.sub(r'^PUB\d+\s*[-–]\s*', '', self.text(image, 'general_publisher'), flags=re.I)
-                if self.text(image, 'general_license') != record.license or normalized(publisher) != normalized(record.publisher):
-                    raise ScreenError('Opened license/publisher identity could not be verified')
+                from .identity_ocr import read_identity
+                license_number = read_identity(self.ocr, self.crop(image, 'general_license'), 'license')
+                publisher = read_identity(self.ocr, self.crop(image, 'general_publisher'), 'publisher')
+                if license_number != record.license or publisher != normalized(record.publisher):
+                    raise ScreenError(f'Opened license/publisher identity could not be verified. Expected '
+                                      f'{record.license!r} / {record.publisher!r}; read {license_number!r} / {publisher!r}')
                 return True
         return False
 
@@ -418,8 +475,13 @@ class RemoteDriver:
                 # OCR silence alone is never evidence that no Transfer exists.
                 raise ScreenError('No readable financial rows; leave this license for review')
             for kind, amount in rows:
-                value = money(amount.text)
                 if normalized(kind.text) == 'transfer':
+                    from .amount_ocr import read_table_amount
+                    column = self.crop(image, 'financials_amounts')
+                    center = kind.y+kind.height/2
+                    cell = column.crop((0, max(0, round(center-7)), column.width,
+                                        min(column.height, round(center+8))))
+                    value = read_table_amount(self.ocr, cell)
                     # A repeated visible row across overlapping pages is the same transfer.
                     key = (kind.text, str(value))
                     if key not in seen:
@@ -434,13 +496,13 @@ class RemoteDriver:
         self.ready('entry')
         self.click('type_button', 'entry')
         image = self.ready('chooser')
-        matches = [l for l in self.ocr.lines(self.crop(image, 'chooser_names'))
-                   if normalized(l.text) == 'payment of royalties']
-        if len(matches) != 1:
-            raise ScreenError('Could not identify exactly one PAYMENT OF ROYALTIES type')
-        line = matches[0]
+        from .choice_ocr import exact_choice
+        try:
+            line = exact_choice(self.ocr, self.crop(image, 'chooser_names'), 'PAYMENT OF ROYALTIES')
+        except ValueError as exc:
+            raise ScreenError(str(exc)) from exc
         box = self.profile['regions']['chooser_names']
-        self.click((round(box[0]+line.x+line.width/2), round(box[1]+line.y+line.height/2)), 'chooser')
+        self.click((round(max(0, box[0]-4)+line.x+line.width/2), round(box[1]+line.y+line.height/2)), 'chooser')
         self.click('chooser_ok', 'chooser')
         image = self.ready('entry')
         if normalized(self.text(image, 'entry_type')) != 'payment of royalties':

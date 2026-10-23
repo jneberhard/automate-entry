@@ -49,3 +49,29 @@ def test_faint_minus_is_preserved_in_numeric_crop():
     draw.rectangle((90, 7, 93, 14), fill='black')
     prepared, _ = amount_ocr.amount_images(image)[0]
     assert (np.asarray(prepared) == (190, 190, 190)).all(axis=2).any()
+
+
+def test_selected_table_cell_is_inverted_and_requires_agreement(monkeypatch):
+    import numpy as np
+    image = Image.new('RGB', (60, 15), (0, 100, 180))
+    def prepare(gray):
+        assert np.median(np.asarray(gray)) > 128
+        return [(gray, 4)]*3
+    monkeypatch.setattr(amount_ocr, 'amount_images', prepare)
+    responses = iter(['-.1', '', '-0.10'])
+    ocr = SimpleNamespace(lines=lambda *a, **kw: [Line(next(responses), 0, 0, 20, 10)])
+    assert amount_ocr.read_table_amount(ocr, image) == Decimal('-.10')
+
+
+def test_blue_selected_background_does_not_erase_white_digits():
+    import numpy as np
+    image = Image.new('RGB', (60, 15), (0, 100, 180))
+    ImageDraw.Draw(image).text((30, 1), '-.1', fill='white')
+    seen = []
+    def recognize(prepared, **kwargs):
+        pixels = np.asarray(prepared.convert('L'))
+        assert pixels.min() == 0 and pixels.max() == 255
+        seen.append(prepared)
+        return [Line('-.1', 0, 0, 20, 10)]
+    assert amount_ocr.read_table_amount(SimpleNamespace(lines=recognize), image) == Decimal('-.1')
+    assert len(seen) >= 2

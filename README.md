@@ -32,6 +32,9 @@ During a run, leave the mouse and keyboard alone. **Hold Esc** to stop, or switc
 - Verify the updated balance in both Financial Transactions and Details before considering the pair complete.
 - Single-value monetary fields use enlarged grayscale and contrast readings to handle short ClearType numbers. At least two readings must agree, the displayed two-decimal format must be present, and conflicting signs or digits stop processing. Balances are still checked in two separate screen captures. **Read displayed balance** checks an already open Details tab without adding entries or editing the workbook.
 - A missing exact license/publisher match or invalid input row stays in the output for review. An unreadable or unexpected screen stops the run; the program does not guess a financial value or assume that OCR silence means no Transfer.
+- General-tab identity edits use repeated border-free, enlarged readings. License digits are compared exactly after joining OCR digit groups. Publisher names require a unique leading result with at least three identical readings across seven OCR passes after removing the displayed `PUB` code. That result must exactly match the workbook name. Ambiguous readings stop the run; no letters are substituted for license digits and publisher names are not fuzzily matched.
+- Transfer amounts are reread from the matching row's cell with repeated agreement, including selected blue rows. The amount crop excludes the grid separator so it cannot become an extra digit. Historical non-Transfer amounts do not affect the decision.
+- The transaction-type chooser includes the full first letter and requires two exact reads of PAYMENT OF ROYALTIES at the same row position. The returned entry-type field also includes the complete label before verification.
 - Duplicate rows remain for paid pairs. All rows of rejected duplicate pairs are removed from the output copy. The original workbook is never edited.
 
 ## Two monitors and calibration

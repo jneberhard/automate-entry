@@ -43,3 +43,23 @@ def read_amount(ocr, image):
     if len(valid) < 2:
         raise ValueError(f'Cannot read an exact monetary amount from the field: {readings!r}')
     return valid[0]
+
+
+def read_table_amount(ocr, image):
+    """Read one bounded table cell, including white text on a selected row."""
+    import numpy as np
+    from .rules import money
+    gray = image.convert('L')
+    if np.median(np.asarray(gray)) < 128:
+        gray = ImageOps.autocontrast(ImageOps.invert(gray))
+    valid, readings = [], []
+    for prepared, scale in amount_images(gray):
+        text = ' '.join(line.text for line in ocr.lines(prepared, scale=scale)).strip()
+        readings.append(text)
+        try:
+            valid.append(money(text))
+        except ValueError:
+            continue
+    if len(valid) < 2 or len(set(valid)) != 1:
+        raise ValueError(f'Table amount readings do not agree: {readings!r}')
+    return valid[0]
