@@ -95,6 +95,15 @@ def read_table_amount(ocr, image):
         # to OCR. Trim only the cell edges; never include a neighboring row.
         interior = gray.crop((0, 2, gray.width, gray.height-2))
         recognize(amount_images(interior))
+    if len(valid) < 2:
+        # Tight ink bounding boxes can make a tiny '-0.1' unrecognizable.
+        # Preserve the full cell and its surrounding whitespace instead. The
+        # one-pixel inset is still inside this exact row and keeps all glyphs.
+        cells = [gray]
+        if gray.height >= 13:
+            cells.append(gray.crop((0, 1, gray.width, gray.height-1)))
+        recognize([(ImageOps.expand(cell, border=15, fill=255).convert('RGB'), scale)
+                   for cell in cells for scale in (3, 4, 6)])
     if len(valid) < 2 or len(set(valid)) != 1:
         raise ValueError(f'Table amount readings do not agree: {readings!r}')
     return valid[0]

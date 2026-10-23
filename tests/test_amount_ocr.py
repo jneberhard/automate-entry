@@ -130,7 +130,7 @@ def test_transfer_focus_border_retry_stays_inside_cell_and_requires_agreement(re
         prepared_sizes.append(cell.size)
         return [(cell, 4)]*6
     monkeypatch.setattr(amount_ocr, 'amount_images', prepare)
-    responses = iter(['']*6 + retry)
+    responses = iter(['']*6 + retry + ['']*6)
     ocr = SimpleNamespace(lines=lambda *a, **kw: [Line(next(responses), 0, 0, 20, 10)])
     if expected is None:
         with pytest.raises(ValueError):
@@ -138,3 +138,26 @@ def test_transfer_focus_border_retry_stays_inside_cell_and_requires_agreement(re
     else:
         assert amount_ocr.read_table_amount(ocr, image) == expected
     assert prepared_sizes == [(58, 15), (58, 11)]
+
+
+@pytest.mark.parametrize('full_cell_reads,expected', [
+    (['-0.1', '-0.10', '', '-0.1', '', ''], Decimal('-0.10')),
+    (['-0.1', '0.1', '', '', '', ''], None),
+    (['-0.1', '', '', '', '', ''], None),
+    (['']*6, None),
+])
+def test_full_cell_padding_recovers_amount_when_tight_crops_are_blank(full_cell_reads, expected, monkeypatch):
+    image = Image.new('RGB', (58, 14), 'white')
+    monkeypatch.setattr(amount_ocr, 'amount_images', lambda cell: [(cell, 4)]*6)
+    responses = iter(['']*12 + full_cell_reads)
+    sizes = []
+    def recognize(cell, **kwargs):
+        sizes.append(cell.size)
+        return [Line(next(responses), 0, 0, 20, 10)]
+    ocr = SimpleNamespace(lines=recognize)
+    if expected is None:
+        with pytest.raises(ValueError):
+            amount_ocr.read_table_amount(ocr, image)
+    else:
+        assert amount_ocr.read_table_amount(ocr, image) == expected
+    assert sizes[-6:] == [(88,44)]*3 + [(88,42)]*3
