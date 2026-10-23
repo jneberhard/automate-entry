@@ -21,7 +21,7 @@ class WindowsOCR:
         if self.engine is None:
             raise RuntimeError('Windows English OCR is unavailable. Install the English language OCR feature in Windows Settings.')
 
-    async def _read(self, image):
+    async def _read(self, image, word_boxes=False):
         from winrt.windows.graphics.imaging import BitmapDecoder
         from winrt.windows.storage.streams import DataWriter, InMemoryRandomAccessStream
         payload = io.BytesIO()
@@ -40,6 +40,10 @@ class WindowsOCR:
             words = list(line.words)
             if not words:
                 continue
+            if word_boxes:
+                lines.extend(Line(w.text, w.bounding_rect.x, w.bounding_rect.y,
+                                  w.bounding_rect.width, w.bounding_rect.height) for w in words)
+                continue
             left = min(w.bounding_rect.x for w in words)
             top = min(w.bounding_rect.y for w in words)
             right = max(w.bounding_rect.x + w.bounding_rect.width for w in words)
@@ -49,13 +53,16 @@ class WindowsOCR:
         stream.close()
         return lines
 
-    def lines(self, image, scale=3):
+    def lines(self, image, scale=3, word_boxes=False):
         from PIL import Image
         from winrt.windows.media.ocr import OcrEngine
         scale = min(scale, OcrEngine.max_image_dimension/max(image.size))
         enlarged = image.resize((max(1, round(image.width*scale)), max(1, round(image.height*scale))), Image.Resampling.LANCZOS)
         return [Line(l.text, l.x/scale, l.y/scale, l.width/scale, l.height/scale)
-                for l in asyncio.run(asyncio.wait_for(self._read(enlarged), timeout=15))]
+                for l in asyncio.run(asyncio.wait_for(self._read(enlarged, word_boxes), timeout=15))]
+
+    def words(self, image, scale=3):
+        return self.lines(image, scale, word_boxes=True)
 
     def text(self, image):
         return ' '.join(line.text for line in self.lines(image))

@@ -386,6 +386,21 @@ class RemoteDriver:
         if a[1] != b[1] or a[3] != b[3]:
             raise ScreenError('Table column regions must have the same top and bottom')
         left = self.ocr.lines(self.crop(image, left_key))
+        if right_key == 'result_publisher_numbers':
+            from .grid_codes import publisher_codes
+            grid = self.publisher_grid(image)
+            counts = []
+            readings = []
+            for scale in (3, 4, 2):
+                right = publisher_codes(self.ocr.words(grid, scale=scale))
+                counts.append(len(right))
+                readings.extend(right)
+            from .grid_codes import align_code_candidates
+            try:
+                return align_code_candidates(left, readings)
+            except ValueError:
+                pass
+            raise ScreenError(f'Could not align visible publisher codes with license rows: {len(left)} licenses / {counts} code readings. Keep the Publisher Code column visible.')
         right = self.ocr.lines(self.crop(image, right_key))
         try:
             return aligned_rows(left, right)
@@ -434,6 +449,12 @@ class RemoteDriver:
             raise ScreenError(f'Table columns could not be aligned: {left_key} / {right_key}; '
                               f'initial OCR counts {len(left)} / {len(right)}')
 
+    def publisher_grid(self, image):
+        regions = self.profile['regions']
+        left, top, _, bottom = regions['result_licenses']
+        right = max(regions['result_publishers'][2], regions['result_publisher_numbers'][2])
+        return image.crop((max(0, left-16), top, right, bottom))
+
     def pages(self, stage, focus, left_key, right_key):
         self.click(focus, stage)
         self.keys(stage, 'ctrl', 'home')
@@ -441,7 +462,8 @@ class RemoteDriver:
         for _ in range(300):
             image = self.expect(stage)
             # Hash only the columns; the changing caret elsewhere does not matter.
-            digest = hashlib.sha256(self.crop(image, left_key).tobytes() + self.crop(image, right_key).tobytes()).digest()
+            right_image = self.publisher_grid(image) if right_key == 'result_publisher_numbers' else self.crop(image, right_key)
+            digest = hashlib.sha256(self.crop(image, left_key).tobytes() + right_image.tobytes()).digest()
             if digest == previous:
                 return
             previous = digest
