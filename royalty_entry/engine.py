@@ -96,7 +96,9 @@ def process_records(records, driver, reference, journal, live, report, stop):
             status = 'would_pay'
         outcomes[record.key] = status
         report(record, status, amount, f'Transfer {transfer}; initial Provisional Balance {balance}')
-    return removed
+    paid_licenses = journal.paid_licenses(reference)
+    protected_rows = {record.row for record in records if record.license in paid_licenses}
+    return removed - protected_rows
 
 
 def run(source, sheet, first_row, reference, live, root, driver_factory, stop, log, progress=None):
@@ -158,7 +160,23 @@ def run(source, sheet, first_row, reference, live, root, driver_factory, stop, l
                     out.flush()
                     os.fsync(out.fileno())
         finally:
+            paid_licenses = journal.paid_licenses(reference)
             journal.close()
+        protected_rows = {record.row for record in workbook.records if record.license in paid_licenses}
+        retained = removed & protected_rows
+        removed -= protected_rows
+        if retained:
+            log(f'Kept {len(retained)} otherwise excluded rows because another publisher for the same license received payment with this reference.')
+            # Preserve the per-publisher decision and make the final workbook
+            # disposition explicit, including on interrupted runs.
+            with report_path.open(encoding='utf-8-sig', newline='') as source_report:
+                report_rows = list(csv.reader(source_report))
+            for row in report_rows[1:]:
+                if row[0] and int(row[0]) in retained:
+                    row[3] = 'keep_shared_license'
+                    row[5] += '; row retained because another publisher for this license received payment'
+            with report_path.open('w', encoding='utf-8-sig', newline='') as final_report:
+                csv.writer(final_report).writerows(report_rows)
         # Preview always retains the original rows; only the report describes proposed removals.
         if not failure:
             notify(completed, total, 'Finalizing workbook and report—please wait…')

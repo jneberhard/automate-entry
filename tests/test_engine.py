@@ -114,3 +114,28 @@ def test_reference_normalization_prevents_case_only_replays(journal):
     record = Record(2, '123', 'Publisher')
     journal.put(record, ' HFA Payment 2026 Q3 ', 'paid', '-.26')
     assert journal.get(record, 'hfa payment 2026 q3')[0] == 'paid'
+
+
+@pytest.mark.parametrize('paid_first', [False, True])
+def test_payment_keeps_other_publishers_and_duplicates_for_same_license(journal, paid_first):
+    class MixedDriver(Driver):
+        def open_record(self, record):
+            self.current = record
+            return super().open_record(record)
+        def details(self):
+            return Decimal('0') if self.current.publisher == 'Paid publisher' else Decimal('-1')
+    records = [Record(2, '123', 'Excluded'), Record(3, '123', 'Excluded'),
+               Record(4, '123', 'Paid publisher'), Record(5, '456', 'Excluded')]
+    if paid_first:
+        records = [records[2], *records[:2], records[3]]
+    removed, _ = run(journal, MixedDriver(), records)
+    assert removed == {5}
+
+
+def test_prior_payment_protects_license_only_for_same_reference(journal):
+    journal.put(Record(99, '123', 'Other publisher'), 'HFA Payment 2026 Q3', 'paid', '-.10')
+    removed, _ = run(journal, Driver(balance='-1'), [Record(2, '123', 'Excluded')])
+    assert removed == set()
+    journal.put(Record(99, '456', 'Other publisher'), 'Different quarter', 'paid', '-.10')
+    removed, _ = run(journal, Driver(balance='-1'), [Record(3, '456', 'Excluded')])
+    assert removed == {3}

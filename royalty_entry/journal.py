@@ -27,3 +27,8 @@ class Journal:
 
     def close(self):
         self.db.close()
+
+    def paid_licenses(self, reference):
+        return {row[0] for row in self.db.execute(
+            "SELECT DISTINCT license FROM entries WHERE reference=? AND status='paid'",
+            (normalized(reference),))}

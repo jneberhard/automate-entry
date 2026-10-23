@@ -85,3 +85,36 @@ def test_progress_includes_invalid_rows_duplicates_and_finalization(tmp_path, mo
         progress=lambda *event: events.append(event))
     assert [(event[0], event[1]) for event in events] == [(0, 3), (1, 3), (2, 3), (3, 3), (3, 3)]
     assert 'Finalizing' in events[-1][2]
+
+
+def test_saved_copy_keeps_shared_license_rows_and_report_explains_retention(tmp_path, monkeypatch):
+    source = tmp_path/'source.xlsx'
+    book = Workbook()
+    sheet = book.active
+    sheet['H1'], sheet['I1'] = 'Publisher', 'License'
+    for row, license_number in [(2, '123'), (3, '456')]:
+        sheet.cell(row, 8, 'Excluded')
+        sheet.cell(row, 9, license_number)
+    book.save(source)
+    before = source.read_bytes()
+    root = tmp_path/'runs'
+    root.mkdir()
+    journal = Journal(root/'journal.sqlite3')
+    journal.put(Record(99, '123', 'Paid publisher'), 'Q3', 'paid', '-.10')
+    journal.close()
+    exports = []
+    def export(self, destination, remove_rows, use_excel=False):
+        exports.append(set(remove_rows))
+        shutil.copy2(self.path, destination)
+    monkeypatch.setattr('royalty_entry.workbook.Workbook.save_filtered', export)
+    class ExcludedDriver:
+        def open_record(self, record): return True
+        def details(self): return Decimal('-1')
+        def close_record(self): pass
+    folder = run(source, 'Sheet', 2, 'Q3', True, root, ExcludedDriver, Event(), lambda _: None)
+    assert exports == [set(), {3}]
+    assert source.read_bytes() == before
+    with (folder/'report.csv').open(encoding='utf-8-sig', newline='') as file:
+        rows = list(csv.reader(file))
+    assert rows[1][3] == 'keep_shared_license'
+    assert rows[2][3] == 'remove_balance'
