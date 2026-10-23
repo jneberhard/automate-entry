@@ -24,6 +24,17 @@ def clipped_publisher_candidate(line, expected, width):
 
 
 def read_identity(ocr, image, kind):
+    if kind == 'publisher_number':
+        # Clear codes need only four unanimous low-magnification renderings.
+        # Any blank, disagreement, or malformed code uses the full reader below.
+        quick = []
+        variants = publisher_images(image)[:4]
+        for prepared, scale in variants:
+            text = ' '.join(line.text for line in ocr.lines(prepared, scale=scale)).strip()
+            match = re.match(r'^\s*(PUB|PB)\s*(\d+)\s*[-–]', text, re.I)
+            quick.append(match[1].upper()+match[2] if match else None)
+        if len(quick) == 4 and quick[0] is not None and len(set(quick)) == 1:
+            return quick[0]
     raw = [ocr.text(image).strip()]
     # The same border removal and ClearType enlargement used for amount fields
     # also prevents edit borders from looking like extra license-number digits.

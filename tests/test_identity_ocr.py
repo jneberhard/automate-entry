@@ -112,3 +112,25 @@ def test_reported_pub824_case_resolves_repeated_ocr_outliers(monkeypatch):
 def test_weak_or_invalid_code_consensus_still_stops(values,monkeypatch):
     ocr,image=reader(monkeypatch,values)
     with pytest.raises(ValueError): identity_ocr.read_identity(ocr,image,'publisher_number')
+
+
+def test_clear_publisher_code_uses_four_reads_without_slow_fallback(monkeypatch):
+    image=Image.new('RGB',(300,21),'white')
+    monkeypatch.setattr(identity_ocr,'publisher_images',lambda _: [(image,2)]*4)
+    calls=[]
+    def recognize(*a,**kw):
+        calls.append(kw['scale'])
+        return [Line('PUB824 - Display name',0,0,100,10)]
+    def forbidden(*args):pytest.fail('Clear code should not need slow fallback')
+    ocr=SimpleNamespace(lines=recognize,text=forbidden)
+    assert identity_ocr.read_identity(ocr,image,'publisher_number')=='PUB824'
+    assert len(calls)==4
+
+
+def test_disagreeing_fast_reads_use_full_reader_instead_of_shortcut(monkeypatch):
+    image=Image.new('RGB',(300,21),'white')
+    monkeypatch.setattr(identity_ocr,'publisher_images',lambda _: [(image,2)]*4)
+    monkeypatch.setattr(identity_ocr,'amount_images',lambda _: [(image,4)]*6)
+    replies=iter(['PUB824 - Name']*3+['PUB624 - Name']+['PUB624 - Name']*10)
+    ocr=SimpleNamespace(lines=lambda *a,**kw:[Line(next(replies),0,0,100,10)],text=lambda _: 'PUB624 - Name')
+    assert identity_ocr.read_identity(ocr,image,'publisher_number')=='PUB624'

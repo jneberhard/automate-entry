@@ -475,9 +475,15 @@ class RemoteDriver:
         if not record.publisher_number:
             return False
         self.record = record
-        self.expect('manager')
-        self.paste('search_input', record.license, 'manager', 'search_value')
-        self.click('search_button', 'manager')
+        image = self.expect('manager')
+        query = self.text(image, 'search_value').strip()
+        current_count = self.text(image, 'search_count')
+        reusable = (query == record.license
+                    and re.search(r'\b\d+\s+Licenses?\b', current_count, re.I)
+                    and re.search(r'(?<!\d)' + re.escape(record.license) + r'(?!\d)', current_count))
+        if not reusable:
+            self.paste('search_input', record.license, 'manager', 'search_value')
+            self.click('search_button', 'manager')
         deadline = time.monotonic()+12
         while True:
             image = self.expect('manager')

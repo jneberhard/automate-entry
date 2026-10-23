@@ -231,3 +231,19 @@ def test_missing_code_never_falls_back_to_name_on_screen():
     driver=RemoteDriver.__new__(RemoteDriver)
     driver.expect=lambda *args:pytest.fail('Missing code must not search by name')
     assert driver.open_record(Record(2,'123','Exact name')) is False
+
+
+def test_verified_current_license_search_is_reused_without_retyping():
+    from royalty_entry.desktop import RemoteDriver
+    from royalty_entry.rules import Record
+    driver=RemoteDriver.__new__(RemoteDriver);driver.profile=DEFAULT
+    driver.expect=lambda stage:None
+    driver.text=lambda image,key:'123' if key=='search_value' else '1 License (Number: 123)'
+    driver.paste=lambda *args:pytest.fail('Same verified search should be reused')
+    clicks=[];driver.click=lambda *args,**kw:clicks.append(args[0])
+    driver.ready=lambda stage:None
+    driver.verify_open_identity=lambda record,image:None
+    driver.pages=lambda *args:[(None,[(Line('123',0,20,30,10),Line('PUB824',0,20,50,10))])]
+    assert driver.open_record(Record(2,'123','Display name','PUB824'))
+    assert len(clicks)==1
+    assert clicks[0]!='search_button'
