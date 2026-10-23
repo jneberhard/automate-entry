@@ -299,6 +299,26 @@ class RemoteDriver:
         self.wait()
 
     def paste(self, point, value, stage, region):
+        if region == 'entry_amount':
+            # This legacy numeric edit does not reliably implement Ctrl+C.
+            # Enter ASCII amount keys directly and verify the displayed cents
+            # twice, without relying on RDP text clipboard round trips.
+            expected = money(value)
+            self.click(point, stage)
+            self.expect(stage)
+            self.hotkey('home')
+            self.hotkey('shift', 'end')
+            self.check_stop()
+            if foreground()[0] != self.handle:
+                raise ScreenError('Remote Desktop lost focus before entering amount')
+            self.pg.write(value, interval=.08)
+            self.wait()
+            self.hotkey('tab')
+            self.wait()
+            actual = self.balance(stage, region)
+            if actual != expected:
+                raise ScreenError(f'Entered amount could not be verified: expected {expected}, displayed {actual}. No save click was sent.')
+            return
         import pyperclip
         self.click(point, stage)
         self.expect(stage)
@@ -342,7 +362,16 @@ class RemoteDriver:
             if matches:
                 break
         if not matches:
-            raise ScreenError(f'Pasted text could not be verified in {region}: expected {value!r}, read {actual!r}. Check RDP clipboard redirection.')
+            # Some legacy edits accept a paste but cannot copy text back.
+            # The clipboard marker is never evidence of the field's content.
+            self.hotkey('tab')
+            self.wait()
+            first = self.text(self.expect(stage), region).strip()
+            self.wait(.35)
+            second = self.text(self.expect(stage), region).strip()
+            if first != value.strip() or second != value.strip():
+                raise ScreenError(f'Pasted text could not be verified in {region}: expected {value!r}, clipboard {actual!r}, displayed {first!r} / {second!r}. No save click was sent.')
+            return
         # Remove the insertion caret before OCR (otherwise Q3| may be read as Q31).
         self.hotkey('tab')
         self.wait()

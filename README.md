@@ -35,6 +35,7 @@ During a run, leave the mouse and keyboard alone. **Hold Esc** to stop, or switc
 - General-tab identity edits use repeated border-free, enlarged readings. License digits are compared exactly after joining OCR digit groups. Publisher names require a unique leading result with at least three identical readings across seven OCR passes after removing the displayed `PUB` code. That result must exactly match the workbook name. Ambiguous readings stop the run; no letters are substituted for license digits and publisher names are not fuzzily matched.
 - Transfer amounts are reread from the matching row's cell with repeated agreement, including selected blue rows. The amount crop excludes the grid separator so it cannot become an extra digit. Historical non-Transfer amounts do not affect the decision.
 - The transaction-type chooser includes the full first letter and requires two exact reads of PAYMENT OF ROYALTIES at the same row position. The returned entry-type field also includes the complete label before verification.
+- Amounts are entered directly with keyboard input and checked against two separate screen reads. They do not depend on copying from the legacy numeric edit. Other pasted fields that cannot copy back must match two exact displayed readings; clipboard marker text is never accepted as verification.
 - Duplicate rows remain for paid pairs. All rows of rejected duplicate pairs are removed from the output copy. The original workbook is never edited.
 
 ## Two monitors and calibration
