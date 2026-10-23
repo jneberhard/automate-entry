@@ -61,6 +61,26 @@ def test_blank_gray_edit_border_is_not_text():
     assert amount_ocr.amount_images(image) == []
 
 
+@pytest.mark.parametrize('confirmation,expected', [
+    (['-0.02']*5, Decimal('-0.02')),
+    (['-0.02', '-0.02', '0.02', '-0.02', '-0.02'], None),
+    (['-0.02', '-0.02', '', '', ''], None),
+    (['43.02']*5, None),
+    (['0.02']*5, None),
+])
+def test_conflicting_initial_reads_need_unanimous_supported_confirmation(confirmation, expected, monkeypatch):
+    image = Image.new('RGB', (100, 21))
+    monkeypatch.setattr(amount_ocr, 'amount_images', lambda _: [(image, 4)]*6)
+    monkeypatch.setattr(amount_ocr, 'amount_retry_images', lambda _: [(image, 2)]*5)
+    responses = iter(['-0.02', '43.02', '-0.02', '0.02', '-0.02', '-0.02'] + confirmation)
+    ocr = SimpleNamespace(lines=lambda *a, **kw: [Line(next(responses), 0, 0, 20, 10)])
+    if expected is None:
+        with pytest.raises(ValueError):
+            amount_ocr.read_amount(ocr, image)
+    else:
+        assert amount_ocr.read_amount(ocr, image) == expected
+
+
 def test_faint_minus_is_preserved_in_numeric_crop():
     import numpy as np
     image = Image.new('RGB', (120, 21), (240, 240, 240))

@@ -52,6 +52,17 @@ def read_amount(ocr, image):
             except ValueError:
                 continue
     recognize(amount_images(image))
+    original = list(valid)
+    if len(set(original)) > 1:
+        # Thresholding can erase a faint minus; enlargement can invent digits.
+        # Resolve only with a fresh, unanimous batch of alternate renderings,
+        # also supported by at least two original readings. Never majority-vote
+        # conflicting results within that confirmation batch.
+        valid.clear()
+        recognize(amount_retry_images(image))
+        if len(valid) >= 3 and len(set(valid)) == 1 and original.count(valid[0]) >= 2:
+            return valid[0]
+        raise ValueError(f'Monetary readings disagree: {readings!r}')
     if len(valid) < 2:
         recognize(amount_retry_images(image))
     if len(set(valid)) > 1:
