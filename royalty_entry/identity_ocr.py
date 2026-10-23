@@ -96,5 +96,6 @@ def read_identity(ocr, image, kind):
                      if count >= minimum and all(count > other_count for other, other_count in counts.items()
                                                  if other != value)]
     if len(confirmed) != 1:
-        raise ValueError(f'Cannot read one agreed {kind} identity: {raw!r}')
+        detail = f'; isolated code readings: {isolated!r}' if kind == 'publisher_number' else ''
+        raise ValueError(f'Cannot read one agreed {kind} identity: {raw!r}{detail}')
     return confirmed[0]

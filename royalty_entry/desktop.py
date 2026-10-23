@@ -134,7 +134,12 @@ class RemoteDriver:
             if reading.scale < .85:
                 raise ScreenError('Remote Desktop returned a reduced snapshot. Enable clipboard image redirection and retry.')
             return reading.normalize(image, self.profile['window_size'])
-        return self.transform.normalize(image, self.profile['window_size'])
+        # Full-size visible captures need the same pixel-grid preservation as
+        # native clipboard captures. A 99.78% toolbar match is fit noise, but
+        # resampling it blurs small codes (e.g. PUB485 becomes PUB4S5).
+        # Keep the measured transform for clicks; snap only the OCR reading.
+        reading = self.transform.native_pixels(self.tracker.reference)
+        return reading.normalize(image, self.profile['window_size'])
 
     def prepare_module(self, visible):
         from .module_layout import module_caption

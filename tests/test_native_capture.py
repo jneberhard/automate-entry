@@ -4,6 +4,26 @@ import pytest
 from royalty_entry import desktop
 
 
+@pytest.mark.parametrize('scale', [.9978, 1.0022])
+def test_full_size_visible_capture_preserves_original_glyph_pixels(monkeypatch, scale):
+    from royalty_entry.tracking import ViewTransform
+    driver = desktop.RemoteDriver.__new__(desktop.RemoteDriver)
+    driver.profile = {'window_size': [1907, 1032]}
+    driver.window_prepared, driver.handle, driver.transform = True, None, None
+    driver.check_stop = lambda: None
+    driver.log = lambda _: None
+    measured = ViewTransform(scale, 447-scale*447, 122-scale*153)
+    driver.tracker = SimpleNamespace(locate=lambda _: measured, reference=(447,153))
+    raw = Image.new('RGB',(1920,1080),'white')
+    # Single-pixel glyph strokes expose accidental interpolation immediately.
+    for x in range(817, 857, 2):
+        for y in range(320,330): raw.putpixel((x,y),(0,0,0))
+    monkeypatch.setattr(desktop,'capture_remote',lambda _: (raw,1,(0,0,1920,1080)))
+    reading = driver.snapshot()
+    assert reading.crop((817,351,857,361)).tobytes() == raw.crop((817,320,857,330)).tobytes()
+    assert driver.transform == measured  # Click mapping keeps the measured scale.
+
+
 def test_small_view_reads_native_pixels_but_keeps_visible_click_transform(monkeypatch):
     from royalty_entry.tracking import ViewTransform
     driver = desktop.RemoteDriver.__new__(desktop.RemoteDriver)
