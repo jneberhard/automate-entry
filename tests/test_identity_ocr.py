@@ -6,6 +6,7 @@ from royalty_entry.ocr import Line
 
 
 def reader(monkeypatch, values):
+    monkeypatch.setattr(identity_ocr, 'publisher_images', lambda _: [])
     image = Image.new('RGB', (300, 21))
     stream = iter(values)
     monkeypatch.setattr(identity_ocr, 'amount_images', lambda _: [(image, 4)]*(len(values)-1))
@@ -60,3 +61,35 @@ def test_three_exact_publisher_reads_beat_split_ocr_errors(monkeypatch):
     ocr, image = reader(monkeypatch, ['PUB694 - B-Day Publishing']*3 +
                         ['PUB694 - a-Day Publishing']*2 + ['PUB694 - Publishing', 'PUBC4 - Publishing'])
     assert identity_ocr.read_identity(ocr, image, 'publisher') == 'b-day publishing'
+
+
+def test_full_field_lower_magnification_recovers_exact_publisher(monkeypatch):
+    values = ['PUB832 - Sony/ATV songs LLC obo Tre Ball Music',
+              "PUB832 - Sony/ATv' songs LLC 0b0 Tre Ball Music",
+              'PUB832 - Sony/ATV songs LLC 0b0 Tre Ball Music']
+    ocr, image = reader(monkeypatch, values + ['PUB832 - Sony/ATV songs LLC obo Tre Ball Music']*4)
+    monkeypatch.setattr(identity_ocr, 'amount_images', lambda _: [(image,4)]*2)
+    monkeypatch.setattr(identity_ocr, 'publisher_images', lambda _: [(image,2)]*4)
+    assert identity_ocr.read_identity(ocr,image,'publisher') == 'sony/atv songs llc obo tre ball music'
+
+
+@pytest.mark.parametrize('text,x,width,expected', [
+    ('Universal Music Corp. OBO Bieber Time Publish',0,250,True),
+    ('Universal Music Corp.',0,120,False),
+    ('Universal Music Corp. OBO Bieber Time Publish',0,180,False),
+    ('Universal Music Corp. OBO Different Publisher',0,250,False),
+])
+def test_only_clipped_exact_prefixes_are_candidates(text,x,width,expected):
+    assert identity_ocr.clipped_publisher_candidate(Line(text,x,0,width,10),
+        'UNIVERSAL MUSIC CORP. OBO BIEBER TIME PUBLISHING',252) is expected
+
+
+@pytest.mark.parametrize('code', ['PUB832','PB1395'])
+def test_publisher_number_is_read_without_relying_on_name(code,monkeypatch):
+    ocr,image=reader(monkeypatch,[code+' - Unreadable name',code+' - Different OCR spelling','PUB632 - Other'])
+    assert identity_ocr.read_identity(ocr,image,'publisher_number')==code
+
+
+def test_different_publisher_numbers_never_merge(monkeypatch):
+    ocr,image=reader(monkeypatch,['PUB832 - Name','PUB832 - Name','PUB833 - Name','PUB833 - Name'])
+    with pytest.raises(ValueError): identity_ocr.read_identity(ocr,image,'publisher_number')

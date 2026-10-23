@@ -5,12 +5,33 @@ from .amount_ocr import amount_images
 from .rules import normalized
 
 
+def publisher_images(image):
+    from PIL import ImageOps
+    variants = []
+    for trim in (0, 1):
+        cell = image.crop((0, trim, image.width, image.height-trim))
+        for mode in ('RGB', 'L'):
+            field = ImageOps.expand(cell.convert(mode), border=15,
+                                    fill='white' if mode == 'RGB' else 255).convert('RGB')
+            variants.extend((field, scale) for scale in (2, 3))
+    return variants
+
+
+def clipped_publisher_candidate(line, expected, width):
+    visible = normalized(line.text).removesuffix('...').removesuffix('…').rstrip()
+    return (len(visible) >= 24 and line.x+line.width >= width-16
+            and normalized(expected).startswith(visible))
+
+
 def read_identity(ocr, image, kind):
     raw = [ocr.text(image).strip()]
     # The same border removal and ClearType enlargement used for amount fields
     # also prevents edit borders from looking like extra license-number digits.
     raw.extend(' '.join(line.text for line in ocr.lines(prepared, scale=scale)).strip()
                for prepared, scale in amount_images(image))
+    if kind in {'publisher', 'publisher_number'}:
+        raw.extend(' '.join(line.text for line in ocr.lines(prepared, scale=scale)).strip()
+                   for prepared, scale in publisher_images(image))
     values = []
     for text in raw:
         if kind == 'license':
@@ -18,6 +39,12 @@ def read_identity(ocr, image, kind):
             # letters or infer missing digits from the expected license.
             if re.fullmatch(r'\d[\d\s]*', text):
                 values.append(''.join(text.split()))
+        elif kind == 'publisher_number':
+            # Read only the leading code, never digits from the publisher name.
+            match = re.match(r'^\s*(P(?:U|IJ|LI)B|PB)\s*(\d+)\s*[-–]', text, re.I)
+            if match:
+                prefix = 'PB' if match[1].upper() == 'PB' else 'PUB'
+                values.append(prefix + match[2])
         elif kind == 'publisher':
             # ClearType can split the U in the non-identity PUB code into IJ
             # or LI. Only normalize this bounded code; never alter the name.

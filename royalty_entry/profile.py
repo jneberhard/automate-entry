@@ -15,6 +15,7 @@ DEFAULT = {
         'search_count': [550, 340, 1100, 362],
         'result_licenses': [470, 382, 625, 936],
         'result_publishers': [1005, 382, 1257, 936],
+        'result_publisher_numbers': [1261, 382, 1338, 936],
         'properties_title': [678, 222, 1225, 245],
         'general_publisher': [817, 347, 1182, 367],
         'general_license': [795, 373, 1182, 392],
@@ -47,6 +48,8 @@ def load_profile(path: Path):
     profile = json.loads(path.read_text(encoding='utf-8')) if path.exists() else json.loads(json.dumps(DEFAULT))
     if profile.get('version') != 1:
         raise ValueError('Unsupported calibration profile')
+    profile.setdefault('regions', {}).setdefault('result_publisher_numbers',
+        list(DEFAULT['regions']['result_publisher_numbers']))
     for section in ('regions', 'points'):
         if set(DEFAULT[section]) - set(profile.get(section, {})):
             raise ValueError('Calibration profile is incomplete')

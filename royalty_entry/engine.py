@@ -60,7 +60,7 @@ def process_records(records, driver, reference, journal, live, report, stop):
             continue
         if not driver.open_record(record):
             outcomes[record.key] = 'review'
-            report(record, 'review', '', 'No exact license/publisher match; row retained')
+            report(record, 'review', '', f'No exact license/publisher match ({record.publisher_number or record.publisher}); row retained')
             continue
         balance = driver.details()
         if balance < -CENT:

@@ -2,7 +2,7 @@ from pathlib import Path
 import os
 import shutil
 import sys
-from .rules import Record, license_text
+from .rules import Record, license_text, publisher_number
 
 
 class Workbook:
@@ -22,16 +22,20 @@ class Workbook:
         self.invalid = []
         for row in range(first_row, self.sheet.max_row+1):
             publisher = self.sheet.cell(row, 8)
+            code_cell = self.sheet.cell(row, 7)
             license_cell = self.sheet.cell(row, 9)
             if publisher.value is None and license_cell.value is None:
                 continue
             try:
                 if publisher.data_type == 'f' or license_cell.data_type == 'f':
                     raise ValueError('Publisher and license cells cannot contain formulas')
+                if code_cell.data_type == 'f':
+                    raise ValueError('Publisher number cannot contain a formula')
+                code = publisher_number(code_cell.value) if code_cell.value is not None else ''
                 license_number = license_text(license_cell.value, license_cell.number_format)
                 if not str(publisher.value or '').strip():
                     raise ValueError('Publisher is blank')
-                self.records.append(Record(row, license_number, str(publisher.value).strip()))
+                self.records.append(Record(row, license_number, str(publisher.value).strip(), code))
             except ValueError as exc:
                 self.invalid.append((row, str(exc)))
 

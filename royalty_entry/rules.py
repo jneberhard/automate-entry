@@ -6,6 +6,13 @@ import re
 CENT = Decimal('0.01')
 
 
+def publisher_number(value):
+    text = re.sub(r'\s+', '', str(value or '')).upper()
+    if not re.fullmatch(r'(?:PUB|PB)\d+', text):
+        raise ValueError('Publisher number must be PUB or PB followed by digits')
+    return text
+
+
 def normalized(value: object) -> str:
     return ' '.join(str(value or '').split()).casefold()
 
@@ -53,7 +60,8 @@ class Record:
     row: int
     license: str
     publisher: str
+    publisher_number: str = ''
 
     @property
     def key(self) -> tuple[str, str]:
-        return self.license, normalized(self.publisher)
+        return self.license, normalized(self.publisher_number or self.publisher)

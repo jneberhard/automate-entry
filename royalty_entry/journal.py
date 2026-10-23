@@ -15,8 +15,14 @@ class Journal:
         self.db.commit()
 
     def get(self, record, reference):
-        return self.db.execute('SELECT status, amount, detail FROM entries WHERE license=? AND publisher=? AND reference=?',
+        result = self.db.execute('SELECT status, amount, detail FROM entries WHERE license=? AND publisher=? AND reference=?',
                                (*record.key, normalized(reference))).fetchone()
+        if result is None and record.publisher_number:
+            # Existing installations recorded payments under publisher names.
+            # Honor those records so upgrading never retries an old payment.
+            result = self.db.execute('SELECT status, amount, detail FROM entries WHERE license=? AND publisher=? AND reference=?',
+                (record.license, normalized(record.publisher), normalized(reference))).fetchone()
+        return result
 
     def put(self, record, reference, status, amount='', detail=''):
         self.db.execute('''INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?)

@@ -139,3 +139,8 @@ def test_prior_payment_protects_license_only_for_same_reference(journal):
     journal.put(Record(99, '456', 'Other publisher'), 'Different quarter', 'paid', '-.10')
     removed, _ = run(journal, Driver(balance='-1'), [Record(3, '456', 'Excluded')])
     assert removed == {3}
+
+
+def test_publisher_number_upgrade_honors_existing_paid_journal(journal):
+    journal.put(Record(2,'123','Publisher A'),'Q3','paid','-.10')
+    assert journal.get(Record(2,'123','Publisher A','PUB832'),'Q3')[0]=='paid'

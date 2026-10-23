@@ -33,3 +33,11 @@ def test_preserve_license_digits():
 def test_invalid_identifiers(value):
     with pytest.raises(ValueError):
         license_text(value)
+
+
+def test_publisher_number_defines_duplicate_key():
+    from royalty_entry.rules import Record,publisher_number
+    assert publisher_number(' pub 832 ')=='PUB832'
+    assert Record(2,'123','Name A','PUB832').key==Record(3,'123','Name B','PUB832').key
+    assert Record(2,'123','Same','PUB832').key!=Record(3,'123','Same','PUB833').key
+    with pytest.raises(ValueError): publisher_number('PUB83O')

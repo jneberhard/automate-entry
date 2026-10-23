@@ -13,6 +13,10 @@ class ScreenError(RuntimeError):
     pass
 
 
+class PublisherMismatch(ScreenError):
+    pass
+
+
 class Cancelled(RuntimeError):
     pass
 
@@ -462,17 +466,36 @@ class RemoteDriver:
             self.wait(0.5)
         if int(match[1]) == 0:
             return False
-        for image, rows in self.pages('manager', 'result_focus', 'result_licenses', 'result_publishers'):
-            matches = [(a, b) for a, b in rows if re.search(r'(?<!\d)' + re.escape(record.license) + r'(?!\d)', a.text)
-                       and normalized(b.text) == normalized(record.publisher)]
-            if matches:
+        column = 'result_publisher_numbers' if record.publisher_number else 'result_publishers'
+        for image, rows in self.pages('manager', 'result_focus', 'result_licenses', column):
+            from .identity_ocr import clipped_publisher_candidate
+            publisher_box = self.profile['regions']['result_publishers']
+            def publisher_matches(line):
+                if record.publisher_number:
+                    return re.sub(r'\s+', '', line.text).upper() == record.publisher_number
+                return (normalized(line.text) == normalized(record.publisher)
+                        or clipped_publisher_candidate(line, record.publisher, publisher_box[2]-publisher_box[0]))
+            # The row icon can merge into the number's OCR on a selected row.
+            # This only selects a candidate: Properties must independently
+            # confirm the complete license number before any financial step.
+            matches = [(a, b) for a, b in rows if record.license in a.text
+                       and publisher_matches(b)]
+            for line, publisher_line in sorted(matches, key=lambda pair: pair[0].y):
                 # Use the first visible exact match, including when OCR returns
                 # rows out of order. Later pages and duplicate rows are skipped.
-                line, _ = min(matches, key=lambda pair: pair[0].y)
                 box = self.profile['regions']['result_licenses']
                 self.click((box[0]+50, round(box[1]+line.y+line.height/2)), 'manager', clicks=2)
                 image = self.ready('general')
-                self.verify_open_identity(record, image)
+                try:
+                    self.verify_open_identity(record, image)
+                except PublisherMismatch:
+                    if record.publisher_number or normalized(publisher_line.text) == normalized(record.publisher):
+                        raise
+                    # A clipped prefix only permits opening a candidate. Full
+                    # identity must match before Details or Financials is used.
+                    self.click('properties_ok', 'general')
+                    self.ready('manager')
+                    continue
                 return True
         return False
 
@@ -488,14 +511,18 @@ class RemoteDriver:
                 image = self.expect('general')
             try:
                 license_number = read_identity(self.ocr, self.crop(image, 'general_license'), 'license')
-                publisher = read_identity(self.ocr, self.crop(image, 'general_publisher'), 'publisher')
+                kind = 'publisher_number' if record.publisher_number else 'publisher'
+                publisher = read_identity(self.ocr, self.crop(image, 'general_publisher'), kind)
             except ValueError as exc:
                 last = exc
                 confirmed = 0
                 continue
-            if license_number != record.license or publisher != normalized(record.publisher):
+            if license_number != record.license:
                 raise ScreenError(f'Opened license/publisher identity could not be verified. Expected '
                                   f'{record.license!r} / {record.publisher!r}; read {license_number!r} / {publisher!r}')
+            expected = record.publisher_number or normalized(record.publisher)
+            if publisher != expected:
+                raise PublisherMismatch(f'Opened publisher does not match: expected {expected!r}; read {publisher!r}')
             confirmed += 1
             if confirmed == 2:
                 return

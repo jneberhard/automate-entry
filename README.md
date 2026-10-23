@@ -85,3 +85,5 @@ Run `.venv\Scripts\python.exe -m pytest -q` after installing `pytest` in the env
 OCR uses the local [Windows OCR API](https://learn.microsoft.com/en-us/uwp/api/windows.media.ocr.ocrengine.recognizeasync) through [PyWinRT](https://pywinrt.readthedocs.io/). English OCR must be available in Windows. Screenshots and worksheet values are not sent to an online OCR service. Financial values are calculated with Python `Decimal`.
 
 To rebuild the desktop app, install `pyinstaller>=6.16,<7` in `.venv` and run **Build.cmd**. `desktop-app.spec` includes the local OCR bindings, Excel integration, Tk GUI and app icon. Rebuilding the distribution does not modify the permanent application data directory.
+
+Publisher identifiers: column G contains PUB/PB numbers, column H is the display name, and column I is the license number. When column G is populated, search matching, opened-license verification and duplicate detection use the publisher number. Existing name-keyed payment history remains honored during upgrades. Older sheets without column G retain name-based matching.

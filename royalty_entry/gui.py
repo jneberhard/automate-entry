@@ -58,7 +58,7 @@ class App(tk.Tk):
         ttk.Entry(form, textvariable=self.reference).grid(row=2, column=1, columnspan=2, sticky='ew')
         ttk.Label(form, text='First data row').grid(row=3, column=0, sticky='w', pady=7)
         ttk.Spinbox(form, from_=1, to=1048576, textvariable=self.first, width=8).grid(row=3, column=1, sticky='w')
-        ttk.Label(panel, text='Publisher: column H     License number: column I     Source tab stays unchanged; results go to a new tab.').pack(anchor='w', pady=(9, 14))
+        ttk.Label(panel, text='Publisher number: G     Publisher name: H     License number: I     Source tab stays unchanged; results go to a new tab.').pack(anchor='w', pady=(9, 14))
         tools = ttk.Frame(panel)
         tools.pack(fill='x')
         self.calibrate = ttk.Button(tools, text='Screen calibration…', command=self.edit_profile)

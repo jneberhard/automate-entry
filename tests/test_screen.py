@@ -205,3 +205,21 @@ def test_unreadable_identity_stops_after_bounded_fresh_captures(monkeypatch):
     with pytest.raises(ScreenError, match='did not stabilize'):
         driver.verify_open_identity(Record(2, '123', 'Publisher A'), object())
     assert captures == ['general']*3
+
+
+def test_number_matching_does_not_depend_on_publisher_name(monkeypatch):
+    from royalty_entry.desktop import RemoteDriver
+    from royalty_entry.rules import Record
+    driver=RemoteDriver.__new__(RemoteDriver)
+    driver.profile=DEFAULT
+    driver.expect=lambda stage:None
+    driver.paste=lambda *args:None
+    driver.text=lambda *args:'2 Licenses (Number: 123)'
+    driver.ready=lambda stage:None
+    driver.click=lambda *a,**kw:None
+    driver.pages=lambda *a:[(None,[(Line('123',0,0,40,10),Line('PUB831',0,0,50,10)),
+                                 (Line('123',0,20,40,10),Line('PUB832',0,20,50,10))])]
+    verified=[]
+    driver.verify_open_identity=lambda record,image:verified.append(record.publisher_number)
+    assert driver.open_record(Record(2,'123','Completely different display spelling','PUB832'))
+    assert verified==['PUB832']

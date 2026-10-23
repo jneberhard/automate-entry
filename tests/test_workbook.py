@@ -22,3 +22,15 @@ def test_reads_only_selected_sheet_columns_h_i_and_retains_identifiers(tmp_path)
     selected.save_filtered(copy, set())
     assert path.read_bytes() == before
     assert load_workbook(copy)['Payments']['I2'].value == '00123'
+
+
+def test_column_g_publisher_code_is_loaded_and_validated(tmp_path):
+    path=tmp_path/'codes.xlsx'
+    book=ExcelFile();sheet=book.active
+    sheet['G2'],sheet['H2'],sheet['I2']='PUB832','Tre Ball','123'
+    sheet['G3'],sheet['H3'],sheet['I3']='PB1395','Other','123'
+    sheet['G4'],sheet['H4'],sheet['I4']='PUB83O','Bad code','123'
+    book.save(path)
+    selected=Workbook(path,'Sheet',2)
+    assert [r.publisher_number for r in selected.records]==['PUB832','PB1395']
+    assert selected.invalid[0][0]==4
