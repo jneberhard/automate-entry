@@ -1,6 +1,6 @@
 """Prepare short monetary fields without discarding signs or guessing digits."""
 import re
-from PIL import ImageOps
+from PIL import Image, ImageOps
 
 
 def amount_images(image):
@@ -24,20 +24,36 @@ def amount_images(image):
             (field.point(lambda pixel: 0 if pixel < 180 else 255).convert('RGB'), 6)]
 
 
+def amount_retry_images(image):
+    """Alternate sampling for tiny zeroes that OCR otherwise reads as 'o'."""
+    images = amount_images(image)
+    if not images:
+        return []
+    field = images[0][0]
+    # Keep the original pixels and sign; change rendering, never OCR characters.
+    return [(field, scale) for scale in (2, 5, 7)] + [
+        (field.resize((field.width*scale, field.height*scale),
+                      Image.Resampling.NEAREST), 1) for scale in (3, 4)]
+
+
 def read_amount(ocr, image):
     from .rules import money
     readings, valid = [], []
-    for prepared, scale in amount_images(image):
-        text = ' '.join(line.text for line in ocr.lines(prepared, scale=scale)).strip()
-        readings.append(text)
-        # These single-value fields display two decimals. A lost decimal point
-        # must not turn -1.77 into a seemingly valid integer such as -177.
-        if not re.search(r'\.\d{2}\)?$', text.replace(' ', '')):
-            continue
-        try:
-            valid.append(money(text))
-        except ValueError:
-            continue
+    def recognize(variants):
+        for prepared, scale in variants:
+            text = ' '.join(line.text for line in ocr.lines(prepared, scale=scale)).strip()
+            readings.append(text)
+            # These single-value fields display two decimals. A lost decimal point
+            # must not turn -1.77 into a seemingly valid integer such as -177.
+            if not re.search(r'\.\d{2}\)?$', text.replace(' ', '')):
+                continue
+            try:
+                valid.append(money(text))
+            except ValueError:
+                continue
+    recognize(amount_images(image))
+    if len(valid) < 2:
+        recognize(amount_retry_images(image))
     if len(set(valid)) > 1:
         raise ValueError(f'Monetary readings disagree: {readings!r}')
     if len(valid) < 2:

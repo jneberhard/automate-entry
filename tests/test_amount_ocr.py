@@ -28,11 +28,31 @@ def test_agreed_exact_amounts(answers, expected, monkeypatch):
 ])
 def test_blank_missing_decimal_or_disagreeing_digits_never_become_an_amount(answers, monkeypatch):
     image = Image.new('RGB', (100, 21))
+    monkeypatch.setattr(amount_ocr, 'amount_retry_images', lambda _: [])
     monkeypatch.setattr(amount_ocr, 'amount_images', lambda _: [(image, 4)]*6)
     stream = iter(answers)
     ocr = SimpleNamespace(lines=lambda *args, **kwargs: [Line(next(stream), 0, 0, 20, 10)])
     with pytest.raises(ValueError):
         amount_ocr.read_amount(ocr, image)
+
+
+@pytest.mark.parametrize('extra,expected', [
+    (['-0.13']*5, Decimal('-0.13')),
+    (['o.13']*5, None),
+    (['0.13']*5, None),
+    (['-0.13', '-0.18', '', '', ''], None),
+])
+def test_small_zero_retry_requires_exact_agreement(extra, expected, monkeypatch):
+    image = Image.new('RGB', (100, 21))
+    monkeypatch.setattr(amount_ocr, 'amount_images', lambda _: [(image, 4)]*6)
+    monkeypatch.setattr(amount_ocr, 'amount_retry_images', lambda _: [(image, 2)]*5)
+    responses = iter(['-o. 13', '-0.13', 'o. 13', 'o. 13', '', ''] + extra)
+    ocr = SimpleNamespace(lines=lambda *a, **kw: [Line(next(responses), 0, 0, 20, 10)])
+    if expected is None:
+        with pytest.raises(ValueError):
+            amount_ocr.read_amount(ocr, image)
+    else:
+        assert amount_ocr.read_amount(ocr, image) == expected
 
 
 def test_blank_gray_edit_border_is_not_text():
