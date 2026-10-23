@@ -18,6 +18,21 @@ def test_clipped_initial_read_recovered_with_exact_agreement_and_coordinates():
     assert (line.x, line.y) == (2, 50)
 
 
+def test_reported_icon_bullets_do_not_hide_exact_payment_label():
+    ocr = reader([[Line('•PAYMENT OF ROYALTIES', 0, 50, 125, 10)],
+                  [Line('•PAYMENT OF ROYALTIES', 12, 62, 125, 10)],
+                  [Line('PAYMENT OF ROYALTIES', 12, 62, 120, 10)]])
+    assert exact_choice(ocr, Image.new('RGB', (230, 85)), 'PAYMENT OF ROYALTIES').y == 50
+
+
+@pytest.mark.parametrize('label', ['kPAYMENT OF ROYALTIES', 'PAYMENT OF ROYALTIES EXTRA',
+                                  '•PAYMENT OF ROYALTIES EXTRA', '•PAYMENT OF ROYALTIE5'])
+def test_icon_cleanup_never_accepts_altered_label(label):
+    with pytest.raises(ValueError):
+        exact_choice(reader([[Line(label, 0, 50, 125, 10)]]*3),
+                     Image.new('RGB', (230, 85)), 'PAYMENT OF ROYALTIES')
+
+
 @pytest.mark.parametrize('passes', [
     [[], [], []],
     [[Line('PAYMENT OF ROYALTIES', 0, 10, 120, 10)], [], []],

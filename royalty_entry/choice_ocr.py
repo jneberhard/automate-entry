@@ -12,7 +12,10 @@ def exact_choice(ocr, image, label):
     for prepared, scale, padding in passes:
         lines = ocr.lines(prepared, scale=scale)
         readings.append([line.text for line in lines])
-        matches = [line for line in lines if normalized(line.text) == target]
+        # The list's small row icon sometimes becomes a leading bullet. Strip
+        # only those explicit icon glyphs, never letters or label punctuation.
+        matches = [line for line in lines
+                   if normalized(line.text.lstrip().lstrip('•·● ').lstrip()) == target]
         if len(matches) > 1:
             raise ValueError(f'Multiple exact {label} rows in chooser')
         if matches:
