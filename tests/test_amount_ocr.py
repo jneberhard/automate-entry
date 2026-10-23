@@ -115,3 +115,26 @@ def test_blue_selected_background_does_not_erase_white_digits():
         return [Line('-.1', 0, 0, 20, 10)]
     assert amount_ocr.read_table_amount(SimpleNamespace(lines=recognize), image) == Decimal('-.1')
     assert len(seen) >= 2
+
+
+@pytest.mark.parametrize('retry,expected', [
+    (['-0.1', '-0.10', '', '', '', ''], Decimal('-0.10')),
+    (['-0.1', '0.1', '', '', '', ''], None),
+    (['-0.1', '', '', '', '', ''], None),
+    (['']*6, None),
+])
+def test_transfer_focus_border_retry_stays_inside_cell_and_requires_agreement(retry, expected, monkeypatch):
+    image = Image.new('RGB', (58, 15), 'white')
+    prepared_sizes = []
+    def prepare(cell):
+        prepared_sizes.append(cell.size)
+        return [(cell, 4)]*6
+    monkeypatch.setattr(amount_ocr, 'amount_images', prepare)
+    responses = iter(['']*6 + retry)
+    ocr = SimpleNamespace(lines=lambda *a, **kw: [Line(next(responses), 0, 0, 20, 10)])
+    if expected is None:
+        with pytest.raises(ValueError):
+            amount_ocr.read_table_amount(ocr, image)
+    else:
+        assert amount_ocr.read_table_amount(ocr, image) == expected
+    assert prepared_sizes == [(58, 15), (58, 11)]

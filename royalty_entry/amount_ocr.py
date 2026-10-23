@@ -80,13 +80,21 @@ def read_table_amount(ocr, image):
     if np.median(np.asarray(gray)) < 128:
         gray = ImageOps.autocontrast(ImageOps.invert(gray))
     valid, readings = [], []
-    for prepared, scale in amount_images(gray):
-        text = ' '.join(line.text for line in ocr.lines(prepared, scale=scale)).strip()
-        readings.append(text)
-        try:
-            valid.append(money(text))
-        except ValueError:
-            continue
+    def recognize(variants):
+        for prepared, scale in variants:
+            text = ' '.join(line.text for line in ocr.lines(prepared, scale=scale)).strip()
+            readings.append(text)
+            try:
+                valid.append(money(text))
+            except ValueError:
+                continue
+    recognize(amount_images(gray))
+    if len(valid) < 2 and gray.height >= 13:
+        # A selected grid row has dotted focus borders at its top and bottom.
+        # Those can make an otherwise legible short amount completely blank
+        # to OCR. Trim only the cell edges; never include a neighboring row.
+        interior = gray.crop((0, 2, gray.width, gray.height-2))
+        recognize(amount_images(interior))
     if len(valid) < 2 or len(set(valid)) != 1:
         raise ValueError(f'Table amount readings do not agree: {readings!r}')
     return valid[0]
