@@ -141,6 +141,7 @@ def test_first_visible_exact_license_publisher_result_is_opened(monkeypatch):
     driver.paste = lambda *args: None
     driver.text = lambda *args: '3 Licenses (Number: 123)'
     driver.ready = lambda stage: object()
+    driver.wait = lambda seconds: None
     driver.crop = lambda image, region: region
     monkeypatch.setattr(identity_ocr, 'read_identity',
                         lambda ocr, image, kind: '123' if kind == 'license' else 'publisher a')
@@ -152,3 +153,55 @@ def test_first_visible_exact_license_publisher_result_is_opened(monkeypatch):
     assert driver.open_record(Record(2, '123', 'Publisher A'))
     box = DEFAULT['regions']['result_licenses']
     assert clicks[-1] == ((box[0]+50, box[1]+25), {'clicks': 2})
+
+
+def test_identity_retries_fresh_frames_after_incomplete_dialog(monkeypatch):
+    from royalty_entry.desktop import RemoteDriver
+    from royalty_entry.rules import Record
+    from royalty_entry import identity_ocr
+    driver = RemoteDriver.__new__(RemoteDriver)
+    driver.ocr = object()
+    frames = iter(['second', 'third'])
+    driver.expect = lambda stage: next(frames)
+    driver.wait = lambda seconds: None
+    driver.crop = lambda image, region: (image, region)
+    seen = []
+    def read(ocr, field, kind):
+        frame, region = field
+        seen.append((frame, kind))
+        if frame == 'first': raise ValueError('Publisher text in unfinished license field')
+        return '123' if kind == 'license' else 'publisher a'
+    monkeypatch.setattr(identity_ocr, 'read_identity', read)
+    driver.verify_open_identity(Record(2, '123', 'Publisher A'), 'first')
+    assert seen == [('first', 'license'), ('second', 'license'), ('second', 'publisher'),
+                    ('third', 'license'), ('third', 'publisher')]
+
+
+def test_readable_wrong_identity_stops_without_retry_or_input(monkeypatch):
+    from royalty_entry.desktop import RemoteDriver, ScreenError
+    from royalty_entry.rules import Record
+    from royalty_entry import identity_ocr
+    driver = RemoteDriver.__new__(RemoteDriver)
+    driver.ocr = object()
+    driver.crop = lambda image, region: region
+    driver.wait = lambda seconds: pytest.fail('Wrong identity must stop immediately')
+    monkeypatch.setattr(identity_ocr, 'read_identity', lambda ocr, image, kind: '999' if kind == 'license' else 'publisher a')
+    with pytest.raises(ScreenError, match='identity could not be verified'):
+        driver.verify_open_identity(Record(2, '123', 'Publisher A'), object())
+
+
+def test_unreadable_identity_stops_after_bounded_fresh_captures(monkeypatch):
+    from royalty_entry.desktop import RemoteDriver, ScreenError
+    from royalty_entry.rules import Record
+    from royalty_entry import identity_ocr
+    driver = RemoteDriver.__new__(RemoteDriver)
+    driver.ocr = object()
+    captures = []
+    driver.expect = lambda stage: captures.append(stage)
+    driver.wait = lambda seconds: None
+    driver.crop = lambda *args: None
+    def unreadable(*args): raise ValueError('No digits')
+    monkeypatch.setattr(identity_ocr, 'read_identity', unreadable)
+    with pytest.raises(ScreenError, match='did not stabilize'):
+        driver.verify_open_identity(Record(2, '123', 'Publisher A'), object())
+    assert captures == ['general']*3

@@ -472,14 +472,34 @@ class RemoteDriver:
                 box = self.profile['regions']['result_licenses']
                 self.click((box[0]+50, round(box[1]+line.y+line.height/2)), 'manager', clicks=2)
                 image = self.ready('general')
-                from .identity_ocr import read_identity
-                license_number = read_identity(self.ocr, self.crop(image, 'general_license'), 'license')
-                publisher = read_identity(self.ocr, self.crop(image, 'general_publisher'), 'publisher')
-                if license_number != record.license or publisher != normalized(record.publisher):
-                    raise ScreenError(f'Opened license/publisher identity could not be verified. Expected '
-                                      f'{record.license!r} / {record.publisher!r}; read {license_number!r} / {publisher!r}')
+                self.verify_open_identity(record, image)
                 return True
         return False
+
+    def verify_open_identity(self, record, image):
+        from .identity_ocr import read_identity
+        confirmed = 0
+        last = None
+        # Dialog captions can paint before their edit fields. Alternate OCR
+        # renderings of one incomplete frame cannot repair that; recapture.
+        for attempt in range(4):
+            if attempt:
+                self.wait(.5)
+                image = self.expect('general')
+            try:
+                license_number = read_identity(self.ocr, self.crop(image, 'general_license'), 'license')
+                publisher = read_identity(self.ocr, self.crop(image, 'general_publisher'), 'publisher')
+            except ValueError as exc:
+                last = exc
+                confirmed = 0
+                continue
+            if license_number != record.license or publisher != normalized(record.publisher):
+                raise ScreenError(f'Opened license/publisher identity could not be verified. Expected '
+                                  f'{record.license!r} / {record.publisher!r}; read {license_number!r} / {publisher!r}')
+            confirmed += 1
+            if confirmed == 2:
+                return
+        raise ScreenError(f'Opened license/publisher identity did not stabilize across fresh screenshots: {last or "fewer than two consecutive confirmed frames"}')
 
     def balance(self, stage, region):
         first = money(self.text(self.expect(stage), region))
