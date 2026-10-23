@@ -69,6 +69,8 @@ class App(tk.Tk):
         self.balance_test.pack(side='left', padx=(0, 8))
         self.recovery = ttk.Button(tools, text='Interrupted entries…', command=self.recover)
         self.recovery.pack(side='left')
+        self.identity_test = ttk.Button(panel, text='Read displayed identity', command=lambda: self.start(test='identity'))
+        self.identity_test.pack(anchor='w', pady=(6, 0))
         ttk.Checkbutton(panel, text='Enable saving payments and adding a filtered results tab to the workbook',
                         variable=self.live).pack(anchor='w', pady=(17, 8))
         ttk.Label(panel, text='Unchecked = preview only: reads balances and transfers, writes a report, adds no payments.',
@@ -111,7 +113,7 @@ class App(tk.Tk):
 
     def set_busy(self, value):
         self.busy = value
-        for button in (self.browse, self.calibrate, self.test, self.balance_test, self.recovery, self.start_button):
+        for button in (self.browse, self.calibrate, self.test, self.balance_test, self.identity_test, self.recovery, self.start_button):
             button.configure(state='disabled' if value else 'normal')
         self.stop_button.configure(state='normal' if value else 'disabled')
 
@@ -132,10 +134,11 @@ class App(tk.Tk):
         self.stop.clear()
         self.set_busy(True)
         self.append('Click inside the Remote Desktop window, then wait. Processing starts automatically after your click.')
-        self.append(('Leave the license Details tab open. This check only reads its Provisional Balance.' if test == 'balance'
+        self.append(('Leave the license General tab open. This check only reads its license and publisher code.' if test == 'identity' else
+                     'Leave the license Details tab open. This check only reads its Provisional Balance.' if test == 'balance'
                      else 'Leave License Manager at the search results screen. Keep this app visible on your other monitor.'))
         self.append('Smart sizing fits the remote session to this window; reading and clicks follow the detected display scale.')
-        if test != 'balance':
+        if test not in ('balance', 'identity'):
             self.append('The Mechanical Royalty Module is maximized first, then the license sequence begins.')
         self.append('Do not move or resize remote dialogs during the run. Hold Esc to stop.')
         self.status.set('Click inside Remote Desktop, then wait. The run will start automatically. This window stays open.')
@@ -185,7 +188,20 @@ class App(tk.Tk):
         try:
             def driver_factory():
                 return RemoteDriver(profile, self.stop, log)
-            if test == 'balance':
+            if test == 'identity':
+                from .identity_ocr import read_identity
+                driver = driver_factory()
+                driver.module_prepared = True
+                values = []
+                for _ in range(2):
+                    image = driver.expect('general')
+                    values.append((read_identity(driver.ocr, driver.crop(image, 'general_license'), 'license'),
+                                   read_identity(driver.ocr, driver.crop(image, 'general_publisher'), 'publisher_number')))
+                    driver.wait(.5)
+                if values[0] != values[1]:
+                    raise ValueError(f'Opened identity changed across screenshots: {values!r}')
+                result = f'Identity check passed: license {values[0][0]}, publisher {values[0][1]}. Two fresh screenshots agree. No payments or workbook changes made.'
+            elif test == 'balance':
                 driver = driver_factory()
                 driver.module_prepared = True  # A read-only check of the already open Details tab.
                 value = driver.balance('details', 'details_balance')

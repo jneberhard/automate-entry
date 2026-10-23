@@ -20,8 +20,11 @@ def publisher_images(image):
 def publisher_code_images(image):
     # Reduce OCR's word context around the leading code. The separator must
     # still be recognized, so clipping a longer code cannot yield a match.
-    cell = image.crop((0, 0, min(70, image.width), image.height))
-    return publisher_images(cell)[:4]
+    variants = []
+    for width, trim in ((70, 0), (80, 1)):
+        cell = image.crop((0, trim, min(width, image.width), image.height-trim))
+        variants.extend(publisher_images(cell)[:4])
+    return variants
 
 
 def clipped_publisher_candidate(line, expected, width):
@@ -43,14 +46,23 @@ def read_identity(ocr, image, kind):
         if len(quick) == 4 and quick[0] is not None and len(set(quick)) == 1:
             return quick[0]
         isolated = []
-        for prepared, scale in publisher_code_images(image):
+        for index, (prepared, scale) in enumerate(publisher_code_images(image)):
             text = ' '.join(line.text for line in ocr.lines(prepared, scale=scale)).strip()
             match = re.match(r'^\s*(PUB|PB)\s*(\d+)\s*[-–]', text, re.I)
             isolated.append(match[1].upper()+match[2] if match else None)
-        # Require four exact, unanimous reads. No digit substitutions and no
-        # knowledge of the workbook's expected value influence recognition.
-        if len(isolated) == 4 and isolated[0] is not None and len(set(isolated)) == 1:
-            return isolated[0]
+            group = isolated[-4:]
+            if (index+1) % 4 == 0 and len(group) == 4 and group[0] is not None and len(set(group)) == 1:
+                # Each crop must agree across both color modes and scales.
+                # A border-free crop recovers glyphs obscured by edit borders.
+                return group[0]
+        # Blanks/malformed glyphs are not conflicting codes. Require at least
+        # four exact reads, supported by both crop boundaries, and reject any
+        # different valid code. The caller also checks two fresh screenshots.
+        valid = [value for value in isolated if value is not None]
+        groups = [isolated[i:i+4] for i in range(0, len(isolated), 4)]
+        if (len(valid) >= 4 and len(set(valid)) == 1
+                and sum(sum(value is not None for value in group) >= 2 for group in groups) >= 2):
+            return valid[0]
     raw = [ocr.text(image).strip()]
     # The same border removal and ClearType enlargement used for amount fields
     # also prevents edit borders from looking like extra license-number digits.

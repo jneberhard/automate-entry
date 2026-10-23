@@ -148,6 +148,32 @@ def test_isolated_code_recovers_reported_pub485_without_digit_substitution(monke
     assert identity_ocr.read_identity(ocr,image,'publisher_number')=='PUB485'
 
 
+def test_border_free_crop_recovers_reported_two_clear_two_invalid_reads(monkeypatch):
+    image=Image.new('RGB',(300,21),'white')
+    monkeypatch.setattr(identity_ocr,'publisher_images',lambda _: [(image,2)]*4)
+    monkeypatch.setattr(identity_ocr,'publisher_code_images',lambda _: [(image,3)]*8)
+    replies=iter(['PIJB4S5 - Name']*4+
+                 ['PUB485 - Univ','PUB4S5 - Univ']*2+['PUB485 - Univers']*4)
+    def forbidden(*args):pytest.fail('Unanimous border-free crop needs no full-field fallback')
+    ocr=SimpleNamespace(lines=lambda *a,**kw:[Line(next(replies),0,0,100,10)],text=forbidden)
+    assert identity_ocr.read_identity(ocr,image,'publisher_number')=='PUB485'
+
+
+@pytest.mark.parametrize('cropped,expected',[
+    (['PUB485 -', '', 'PUB485 -', '', '', 'PUB485 -', 'PUB485 -', 'PUB485 -'], 'PUB485'),
+    (['PUB485 -', '', 'PUB485 -', '', '', 'PUB465 -', 'PUB485 -', 'PUB485 -'], 'PUB624'),
+    (['PUB485 -', '', 'PUB485 -', '', '', '', '', 'PUB485 -'], 'PUB624'),
+])
+def test_multiple_crops_accept_matching_codes_but_reject_conflicts_and_weak_support(monkeypatch,cropped,expected):
+    image=Image.new('RGB',(300,21),'white')
+    monkeypatch.setattr(identity_ocr,'publisher_images',lambda _: [(image,2)]*4)
+    monkeypatch.setattr(identity_ocr,'publisher_code_images',lambda _: [(image,3)]*8)
+    monkeypatch.setattr(identity_ocr,'amount_images',lambda _: [])
+    replies=iter(['PIJB4S5 - Name']*4+cropped+['PUB624 - Name']*4)
+    ocr=SimpleNamespace(lines=lambda *a,**kw:[Line(next(replies),0,0,100,10)],text=lambda _: 'PUB624 - Name')
+    assert identity_ocr.read_identity(ocr,image,'publisher_number')==expected
+
+
 @pytest.mark.parametrize('isolated',[
     ['PUB485 -']*3+['PUB465 -'],
     ['PUB4S5 -']*4,
