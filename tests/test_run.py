@@ -16,6 +16,7 @@ def test_live_run_preserves_partial_removals_and_source_after_failure(tmp_path, 
     sheet.title = 'Payments'
     sheet['H1'], sheet['I1'] = 'Publisher', 'License'
     for row, license_number in [(2, '123'), (3, '123'), (4, '456')]:
+        sheet.cell(row, 7, 'PUB1')
         sheet.cell(row, 8, 'Publisher')
         sheet.cell(row, 9, license_number)
     book.save(source)
@@ -52,7 +53,7 @@ def test_live_run_preserves_partial_removals_and_source_after_failure(tmp_path, 
         statuses = [row[3] for row in list(csv.reader(file))[1:]]
     assert statuses == ['remove_balance', 'duplicate', 'STOPPED']
     journal = Journal(tmp_path/'runs'/'journal.sqlite3')
-    assert journal.get(Record(2, '123', 'Publisher'), 'Q3')[0] == 'remove_balance'
+    assert journal.get(Record(2, '123', 'Publisher', 'PUB1'), 'Q3')[0] == 'remove_balance'
     journal.close()
 
 
@@ -71,6 +72,7 @@ def test_progress_includes_invalid_rows_duplicates_and_finalization(tmp_path, mo
     book = Workbook()
     sheet = book.active
     sheet.title = 'Payments'
+    sheet['G2'], sheet['G3'], sheet['G4'] = 'PUB1', 'PUB1', 'PUB1'
     sheet['H2'], sheet['I2'] = 'Publisher', '123'
     sheet['H3'], sheet['I3'] = 'Publisher', '123'
     sheet['H4'], sheet['I4'] = 'Missing license', None
@@ -93,6 +95,7 @@ def test_saved_copy_keeps_shared_license_rows_and_report_explains_retention(tmp_
     sheet = book.active
     sheet['H1'], sheet['I1'] = 'Publisher', 'License'
     for row, license_number in [(2, '123'), (3, '456')]:
+        sheet.cell(row, 7, 'PUB1')
         sheet.cell(row, 8, 'Excluded')
         sheet.cell(row, 9, license_number)
     book.save(source)
@@ -100,7 +103,7 @@ def test_saved_copy_keeps_shared_license_rows_and_report_explains_retention(tmp_
     root = tmp_path/'runs'
     root.mkdir()
     journal = Journal(root/'journal.sqlite3')
-    journal.put(Record(99, '123', 'Paid publisher'), 'Q3', 'paid', '-.10')
+    journal.put(Record(99, '123', 'Paid publisher', 'PUB2'), 'Q3', 'paid', '-.10')
     journal.close()
     exports = []
     def export(self, destination, remove_rows, use_excel=False):
@@ -129,6 +132,7 @@ def isolate_results_tab_excel(monkeypatch):
 def test_live_run_writes_filtered_tab_and_preflights_before_driver(tmp_path, monkeypatch):
     source = tmp_path/'source.xlsx'
     book = Workbook()
+    book.active['G2'] = 'PUB1'
     book.active['H2'], book.active['I2'] = 'Publisher', '123'
     book.save(source)
     calls = []
@@ -154,6 +158,7 @@ def test_live_run_writes_filtered_tab_and_preflights_before_driver(tmp_path, mon
 def test_locked_source_prevents_payments(tmp_path, monkeypatch):
     source = tmp_path/'source.xlsx'
     book = Workbook()
+    book.active['G2'] = 'PUB1'
     book.active['H2'], book.active['I2'] = 'Publisher', '123'
     book.save(source)
     monkeypatch.setattr('royalty_entry.workbook.Workbook.save_filtered',

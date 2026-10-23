@@ -86,4 +86,4 @@ OCR uses the local [Windows OCR API](https://learn.microsoft.com/en-us/uwp/api/w
 
 To rebuild the desktop app, install `pyinstaller>=6.16,<7` in `.venv` and run **Build.cmd**. `desktop-app.spec` includes the local OCR bindings, Excel integration, Tk GUI and app icon. Rebuilding the distribution does not modify the permanent application data directory.
 
-Publisher identifiers: column G contains PUB/PB numbers, column H is the display name, and column I is the license number. When column G is populated, search matching, opened-license verification and duplicate detection use the publisher number. Existing name-keyed payment history remains honored during upgrades. Older sheets without column G retain name-based matching.
+Publisher identifiers: column G must contain a valid PUB/PB number, column H is display-only, and column I is the license number. Matching, opened-license verification and duplicate detection use license plus publisher code only. Missing/invalid codes are kept for review; names are never a fallback. Old paid/pending history without codes requires verification rather than automatic name matching.

@@ -26,7 +26,7 @@ def test_preserve_license_digits():
     assert license_text(1264577400.0) == '1264577400'
     assert license_text('001234') == '001234'
     assert license_text(1234, '000000') == '001234'
-    assert Record(2, '123', ' Oxford  University PRESS ').key == ('123', 'oxford university press')
+    assert Record(2, '123', ' Oxford  University PRESS ', 'PUB1').key == ('123', 'pub1')
 
 
 @pytest.mark.parametrize('value', [None, True, -2, 1.2, '=I2', 10**15])

@@ -144,13 +144,13 @@ def test_first_visible_exact_license_publisher_result_is_opened(monkeypatch):
     driver.wait = lambda seconds: None
     driver.crop = lambda image, region: region
     monkeypatch.setattr(identity_ocr, 'read_identity',
-                        lambda ocr, image, kind: '123' if kind == 'license' else 'publisher a')
+                        lambda ocr, image, kind: '123' if kind == 'license' else 'PUB1')
     rows = [(Line('123', 0, y, 50, 10), Line(pub, 0, y, 80, 10))
-            for y, pub in [(40, 'Publisher A'), (0, 'Publisher B'), (20, 'Publisher A')]]
+            for y, pub in [(40, 'PUB1'), (0, 'PUB2'), (20, 'PUB1')]]
     driver.pages = lambda *args: iter([(object(), rows)])
     clicks = []
     driver.click = lambda point, stage, **kwargs: clicks.append((point, kwargs))
-    assert driver.open_record(Record(2, '123', 'Publisher A'))
+    assert driver.open_record(Record(2, '123', 'Publisher A', 'PUB1'))
     box = DEFAULT['regions']['result_licenses']
     assert clicks[-1] == ((box[0]+50, box[1]+25), {'clicks': 2})
 
@@ -170,11 +170,11 @@ def test_identity_retries_fresh_frames_after_incomplete_dialog(monkeypatch):
         frame, region = field
         seen.append((frame, kind))
         if frame == 'first': raise ValueError('Publisher text in unfinished license field')
-        return '123' if kind == 'license' else 'publisher a'
+        return '123' if kind == 'license' else 'PUB1'
     monkeypatch.setattr(identity_ocr, 'read_identity', read)
-    driver.verify_open_identity(Record(2, '123', 'Publisher A'), 'first')
-    assert seen == [('first', 'license'), ('second', 'license'), ('second', 'publisher'),
-                    ('third', 'license'), ('third', 'publisher')]
+    driver.verify_open_identity(Record(2, '123', 'Publisher A', 'PUB1'), 'first')
+    assert seen == [('first', 'license'), ('second', 'license'), ('second', 'publisher_number'),
+                    ('third', 'license'), ('third', 'publisher_number')]
 
 
 def test_readable_wrong_identity_stops_without_retry_or_input(monkeypatch):
@@ -185,9 +185,9 @@ def test_readable_wrong_identity_stops_without_retry_or_input(monkeypatch):
     driver.ocr = object()
     driver.crop = lambda image, region: region
     driver.wait = lambda seconds: pytest.fail('Wrong identity must stop immediately')
-    monkeypatch.setattr(identity_ocr, 'read_identity', lambda ocr, image, kind: '999' if kind == 'license' else 'publisher a')
+    monkeypatch.setattr(identity_ocr, 'read_identity', lambda ocr, image, kind: '999' if kind == 'license' else 'PUB1')
     with pytest.raises(ScreenError, match='identity could not be verified'):
-        driver.verify_open_identity(Record(2, '123', 'Publisher A'), object())
+        driver.verify_open_identity(Record(2, '123', 'Publisher A', 'PUB1'), object())
 
 
 def test_unreadable_identity_stops_after_bounded_fresh_captures(monkeypatch):
@@ -203,7 +203,7 @@ def test_unreadable_identity_stops_after_bounded_fresh_captures(monkeypatch):
     def unreadable(*args): raise ValueError('No digits')
     monkeypatch.setattr(identity_ocr, 'read_identity', unreadable)
     with pytest.raises(ScreenError, match='did not stabilize'):
-        driver.verify_open_identity(Record(2, '123', 'Publisher A'), object())
+        driver.verify_open_identity(Record(2, '123', 'Publisher A', 'PUB1'), object())
     assert captures == ['general']*3
 
 
@@ -223,3 +223,11 @@ def test_number_matching_does_not_depend_on_publisher_name(monkeypatch):
     driver.verify_open_identity=lambda record,image:verified.append(record.publisher_number)
     assert driver.open_record(Record(2,'123','Completely different display spelling','PUB832'))
     assert verified==['PUB832']
+
+
+def test_missing_code_never_falls_back_to_name_on_screen():
+    from royalty_entry.desktop import RemoteDriver
+    from royalty_entry.rules import Record
+    driver=RemoteDriver.__new__(RemoteDriver)
+    driver.expect=lambda *args:pytest.fail('Missing code must not search by name')
+    assert driver.open_record(Record(2,'123','Exact name')) is False

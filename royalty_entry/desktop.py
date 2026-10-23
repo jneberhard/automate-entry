@@ -450,6 +450,8 @@ class RemoteDriver:
         raise ScreenError('Could not establish the end of the table after 300 pages')
 
     def open_record(self, record):
+        if not record.publisher_number:
+            return False
         self.record = record
         self.expect('manager')
         self.paste('search_input', record.license, 'manager', 'search_value')
@@ -466,15 +468,10 @@ class RemoteDriver:
             self.wait(0.5)
         if int(match[1]) == 0:
             return False
-        column = 'result_publisher_numbers' if record.publisher_number else 'result_publishers'
+        column = 'result_publisher_numbers'
         for image, rows in self.pages('manager', 'result_focus', 'result_licenses', column):
-            from .identity_ocr import clipped_publisher_candidate
-            publisher_box = self.profile['regions']['result_publishers']
             def publisher_matches(line):
-                if record.publisher_number:
-                    return re.sub(r'\s+', '', line.text).upper() == record.publisher_number
-                return (normalized(line.text) == normalized(record.publisher)
-                        or clipped_publisher_candidate(line, record.publisher, publisher_box[2]-publisher_box[0]))
+                return re.sub(r'\s+', '', line.text).upper() == record.publisher_number
             # The row icon can merge into the number's OCR on a selected row.
             # This only selects a candidate: Properties must independently
             # confirm the complete license number before any financial step.
@@ -486,21 +483,14 @@ class RemoteDriver:
                 box = self.profile['regions']['result_licenses']
                 self.click((box[0]+50, round(box[1]+line.y+line.height/2)), 'manager', clicks=2)
                 image = self.ready('general')
-                try:
-                    self.verify_open_identity(record, image)
-                except PublisherMismatch:
-                    if record.publisher_number or normalized(publisher_line.text) == normalized(record.publisher):
-                        raise
-                    # A clipped prefix only permits opening a candidate. Full
-                    # identity must match before Details or Financials is used.
-                    self.click('properties_ok', 'general')
-                    self.ready('manager')
-                    continue
+                self.verify_open_identity(record, image)
                 return True
         return False
 
     def verify_open_identity(self, record, image):
         from .identity_ocr import read_identity
+        if not record.publisher_number:
+            raise ScreenError('Publisher code is required; names cannot be used for matching')
         confirmed = 0
         last = None
         # Dialog captions can paint before their edit fields. Alternate OCR
@@ -511,7 +501,7 @@ class RemoteDriver:
                 image = self.expect('general')
             try:
                 license_number = read_identity(self.ocr, self.crop(image, 'general_license'), 'license')
-                kind = 'publisher_number' if record.publisher_number else 'publisher'
+                kind = 'publisher_number'
                 publisher = read_identity(self.ocr, self.crop(image, 'general_publisher'), kind)
             except ValueError as exc:
                 last = exc
@@ -520,7 +510,7 @@ class RemoteDriver:
             if license_number != record.license:
                 raise ScreenError(f'Opened license/publisher identity could not be verified. Expected '
                                   f'{record.license!r} / {record.publisher!r}; read {license_number!r} / {publisher!r}')
-            expected = record.publisher_number or normalized(record.publisher)
+            expected = record.publisher_number
             if publisher != expected:
                 raise PublisherMismatch(f'Opened publisher does not match: expected {expected!r}; read {publisher!r}')
             confirmed += 1

@@ -46,6 +46,10 @@ def process_records(records, driver, reference, journal, live, report, stop):
             report(record, 'duplicate', '', f'Skipped repeated license/publisher; first outcome: {status}')
             continue
         previous = journal.get(record, reference)
+        if previous and previous[0] == 'legacy_review':
+            outcomes[record.key] = 'review'
+            report(record, 'review', '', previous[2])
+            continue
         if previous and previous[0] == 'pending':
             raise RuntimeError(f'{record.license} / {record.publisher} has an unfinished save in the journal. Inspect it in License Manager before retrying. No automatic retry is allowed.')
         if previous and previous[0] == 'paid':
@@ -110,7 +114,7 @@ def run(source, sheet, first_row, reference, live, root, driver_factory, stop, l
             raise ValueError('Enter a nonblank, single-line reference')
         workbook = Workbook(Path(source), sheet, first_row)
         if not workbook.records:
-            raise ValueError('No valid license/publisher rows were found. Check the sheet and first data row.')
+            raise ValueError('No valid license/publisher-code rows were found. Check column G (PUB/PB code), column I (license), sheet and first data row.')
         total = len(workbook.records) + len(workbook.invalid)
         completed = 0
         notify = progress or (lambda *_: None)

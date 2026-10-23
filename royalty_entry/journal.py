@@ -18,10 +18,14 @@ class Journal:
         result = self.db.execute('SELECT status, amount, detail FROM entries WHERE license=? AND publisher=? AND reference=?',
                                (*record.key, normalized(reference))).fetchone()
         if result is None and record.publisher_number:
-            # Existing installations recorded payments under publisher names.
-            # Honor those records so upgrading never retries an old payment.
-            result = self.db.execute('SELECT status, amount, detail FROM entries WHERE license=? AND publisher=? AND reference=?',
-                (record.license, normalized(record.publisher), normalized(reference))).fetchone()
+            # Old name-keyed history has no verified publisher-code mapping.
+            # Flag the license for review rather than matching by name or
+            # risking another payment after an upgrade.
+            old = self.db.execute('SELECT publisher FROM entries WHERE license=? AND reference=? AND status IN ("paid","pending")',
+                (record.license, normalized(reference))).fetchall()
+            import re
+            if any(not re.fullmatch(r'(?:pub|pb)\d+', key) for key, in old):
+                return ('legacy_review', '', 'Older history lacks publisher codes; verify it before retrying this license')
         return result
 
     def put(self, record, reference, status, amount='', detail=''):

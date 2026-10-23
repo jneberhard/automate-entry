@@ -64,4 +64,4 @@ class Record:
 
     @property
     def key(self) -> tuple[str, str]:
-        return self.license, normalized(self.publisher_number or self.publisher)
+        return self.license, normalized(self.publisher_number)

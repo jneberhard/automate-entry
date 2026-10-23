@@ -44,7 +44,7 @@ def journal(tmp_path):
 
 def run(journal, driver, records=None, live=True):
     rows = []
-    removed = process_records(records or [Record(2, '123', 'Publisher')], driver, 'HFA Payment 2026 Q3',
+    removed = process_records(records or [Record(2, '123', 'Publisher', 'PUB1')], driver, 'HFA Payment 2026 Q3',
                               journal, live, lambda *args: rows.append(args), Event())
     return removed, rows
 
@@ -58,7 +58,7 @@ def test_balance_threshold_is_strict(journal, balance, should_pay):
 
 
 def test_missing_transfer_removes_all_duplicate_rows(journal):
-    records = [Record(2, '123', 'Publisher'), Record(3, '123', 'PUBLISHER')]
+    records = [Record(2, '123', 'Publisher', 'PUB1'), Record(3, '123', 'PUBLISHER', 'PUB1')]
     driver = Driver(transfer=None)
     removed, _ = run(journal, driver, records)
     assert removed == {2, 3}
@@ -67,7 +67,7 @@ def test_missing_transfer_removes_all_duplicate_rows(journal):
 
 
 def test_same_license_different_publisher_is_processed(journal):
-    records = [Record(2, '123', 'A'), Record(3, '123', 'A'), Record(4, '123', 'B')]
+    records = [Record(2, '123', 'A', 'PUB1'), Record(3, '123', 'A', 'PUB1'), Record(4, '123', 'B', 'PUB2')]
     driver = Driver()
     removed, _ = run(journal, driver, records)
     assert len(driver.saved) == 2
@@ -81,7 +81,7 @@ def test_preview_saves_no_payments_or_ledger_status(journal):
     removed, rows = run(journal, driver, live=False)
     assert not driver.prepared and not driver.saved
     assert rows[0][1] == 'would_pay'
-    assert journal.get(Record(2, '123', 'Publisher'), 'HFA Payment 2026 Q3') is None
+    assert journal.get(Record(2, '123', 'Publisher', 'PUB1'), 'HFA Payment 2026 Q3') is None
 
 
 def test_missing_match_keeps_row(journal):
@@ -103,7 +103,7 @@ def test_completed_entry_not_repeated(journal):
 def test_interrupted_commit_blocks_automatic_retry(journal):
     with pytest.raises(RuntimeError, match='Disconnected'):
         run(journal, Driver(fail_save=True))
-    assert journal.get(Record(2, '123', 'Publisher'), 'HFA Payment 2026 Q3')[0] == 'pending'
+    assert journal.get(Record(2, '123', 'Publisher', 'PUB1'), 'HFA Payment 2026 Q3')[0] == 'pending'
     driver = Driver()
     with pytest.raises(RuntimeError, match='unfinished save'):
         run(journal, driver)
@@ -111,7 +111,7 @@ def test_interrupted_commit_blocks_automatic_retry(journal):
 
 
 def test_reference_normalization_prevents_case_only_replays(journal):
-    record = Record(2, '123', 'Publisher')
+    record = Record(2, '123', 'Publisher', 'PUB1')
     journal.put(record, ' HFA Payment 2026 Q3 ', 'paid', '-.26')
     assert journal.get(record, 'hfa payment 2026 q3')[0] == 'paid'
 
@@ -124,8 +124,8 @@ def test_payment_keeps_other_publishers_and_duplicates_for_same_license(journal,
             return super().open_record(record)
         def details(self):
             return Decimal('0') if self.current.publisher == 'Paid publisher' else Decimal('-1')
-    records = [Record(2, '123', 'Excluded'), Record(3, '123', 'Excluded'),
-               Record(4, '123', 'Paid publisher'), Record(5, '456', 'Excluded')]
+    records = [Record(2, '123', 'Excluded', 'PUB1'), Record(3, '123', 'Excluded', 'PUB1'),
+               Record(4, '123', 'Paid publisher', 'PUB2'), Record(5, '456', 'Excluded', 'PUB1')]
     if paid_first:
         records = [records[2], *records[:2], records[3]]
     removed, _ = run(journal, MixedDriver(), records)
@@ -133,14 +133,15 @@ def test_payment_keeps_other_publishers_and_duplicates_for_same_license(journal,
 
 
 def test_prior_payment_protects_license_only_for_same_reference(journal):
-    journal.put(Record(99, '123', 'Other publisher'), 'HFA Payment 2026 Q3', 'paid', '-.10')
-    removed, _ = run(journal, Driver(balance='-1'), [Record(2, '123', 'Excluded')])
+    journal.put(Record(99, '123', 'Other publisher', 'PUB2'), 'HFA Payment 2026 Q3', 'paid', '-.10')
+    removed, _ = run(journal, Driver(balance='-1'), [Record(2, '123', 'Excluded', 'PUB1')])
     assert removed == set()
-    journal.put(Record(99, '456', 'Other publisher'), 'Different quarter', 'paid', '-.10')
-    removed, _ = run(journal, Driver(balance='-1'), [Record(3, '456', 'Excluded')])
+    journal.put(Record(99, '456', 'Other publisher', 'PUB2'), 'Different quarter', 'paid', '-.10')
+    removed, _ = run(journal, Driver(balance='-1'), [Record(3, '456', 'Excluded', 'PUB1')])
     assert removed == {3}
 
 
 def test_publisher_number_upgrade_honors_existing_paid_journal(journal):
-    journal.put(Record(2,'123','Publisher A'),'Q3','paid','-.10')
-    assert journal.get(Record(2,'123','Publisher A','PUB832'),'Q3')[0]=='paid'
+    journal.db.execute("INSERT INTO entries VALUES ('123','publisher a','q3','paid','-.10','','')")
+    journal.db.commit()
+    assert journal.get(Record(2,'123','Publisher A','PUB832'),'Q3')[0]=='legacy_review'
