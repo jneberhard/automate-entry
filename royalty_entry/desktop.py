@@ -465,10 +465,10 @@ class RemoteDriver:
         for image, rows in self.pages('manager', 'result_focus', 'result_licenses', 'result_publishers'):
             matches = [(a, b) for a, b in rows if re.search(r'(?<!\d)' + re.escape(record.license) + r'(?!\d)', a.text)
                        and normalized(b.text) == normalized(record.publisher)]
-            if len(matches) > 1:
-                raise ScreenError('Multiple identical license/publisher results need manual review')
             if matches:
-                line, _ = matches[0]
+                # Use the first visible exact match, including when OCR returns
+                # rows out of order. Later pages and duplicate rows are skipped.
+                line, _ = min(matches, key=lambda pair: pair[0].y)
                 box = self.profile['regions']['result_licenses']
                 self.click((box[0]+50, round(box[1]+line.y+line.height/2)), 'manager', clicks=2)
                 image = self.ready('general')

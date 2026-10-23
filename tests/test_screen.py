@@ -128,3 +128,27 @@ def test_transfer_rechecks_cell_instead_of_trusting_column_ocr(monkeypatch):
     driver.pages = lambda *a: [(None, rows)]
     monkeypatch.setattr(amount_ocr, 'read_table_amount', lambda *a: Decimal('-.12'))
     assert driver.transfers() == Decimal('-.12')
+
+
+def test_first_visible_exact_license_publisher_result_is_opened(monkeypatch):
+    from royalty_entry.desktop import RemoteDriver
+    from royalty_entry.rules import Record
+    from royalty_entry import identity_ocr
+    driver = RemoteDriver.__new__(RemoteDriver)
+    driver.profile = DEFAULT
+    driver.ocr = object()
+    driver.expect = lambda stage: object()
+    driver.paste = lambda *args: None
+    driver.text = lambda *args: '3 Licenses (Number: 123)'
+    driver.ready = lambda stage: object()
+    driver.crop = lambda image, region: region
+    monkeypatch.setattr(identity_ocr, 'read_identity',
+                        lambda ocr, image, kind: '123' if kind == 'license' else 'publisher a')
+    rows = [(Line('123', 0, y, 50, 10), Line(pub, 0, y, 80, 10))
+            for y, pub in [(40, 'Publisher A'), (0, 'Publisher B'), (20, 'Publisher A')]]
+    driver.pages = lambda *args: iter([(object(), rows)])
+    clicks = []
+    driver.click = lambda point, stage, **kwargs: clicks.append((point, kwargs))
+    assert driver.open_record(Record(2, '123', 'Publisher A'))
+    box = DEFAULT['regions']['result_licenses']
+    assert clicks[-1] == ((box[0]+50, box[1]+25), {'clicks': 2})
