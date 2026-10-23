@@ -7,6 +7,7 @@ from royalty_entry.ocr import Line
 
 def reader(monkeypatch, values):
     monkeypatch.setattr(identity_ocr, 'publisher_images', lambda _: [])
+    monkeypatch.setattr(identity_ocr, 'publisher_code_images', lambda _: [])
     image = Image.new('RGB', (300, 21))
     stream = iter(values)
     monkeypatch.setattr(identity_ocr, 'amount_images', lambda _: [(image, 4)]*(len(values)-1))
@@ -130,7 +131,34 @@ def test_clear_publisher_code_uses_four_reads_without_slow_fallback(monkeypatch)
 def test_disagreeing_fast_reads_use_full_reader_instead_of_shortcut(monkeypatch):
     image=Image.new('RGB',(300,21),'white')
     monkeypatch.setattr(identity_ocr,'publisher_images',lambda _: [(image,2)]*4)
+    monkeypatch.setattr(identity_ocr,'publisher_code_images',lambda _: [])
     monkeypatch.setattr(identity_ocr,'amount_images',lambda _: [(image,4)]*6)
     replies=iter(['PUB824 - Name']*3+['PUB624 - Name']+['PUB624 - Name']*10)
     ocr=SimpleNamespace(lines=lambda *a,**kw:[Line(next(replies),0,0,100,10)],text=lambda _: 'PUB624 - Name')
     assert identity_ocr.read_identity(ocr,image,'publisher_number')=='PUB624'
+
+
+def test_isolated_code_recovers_reported_pub485_without_digit_substitution(monkeypatch):
+    image=Image.new('RGB',(300,21),'white')
+    monkeypatch.setattr(identity_ocr,'publisher_images',lambda _: [(image,2)]*4)
+    monkeypatch.setattr(identity_ocr,'publisher_code_images',lambda _: [(image,3)]*4)
+    replies=iter(['PIJB4S5 - Universal Music']*4+['PUB485 - Univt']*4)
+    def forbidden(*args):pytest.fail('Unanimous isolated code needs no full-field fallback')
+    ocr=SimpleNamespace(lines=lambda *a,**kw:[Line(next(replies),0,0,100,10)],text=forbidden)
+    assert identity_ocr.read_identity(ocr,image,'publisher_number')=='PUB485'
+
+
+@pytest.mark.parametrize('isolated',[
+    ['PUB485 -']*3+['PUB465 -'],
+    ['PUB4S5 -']*4,
+    ['PUB485']*4,  # No separator: a longer code may have been clipped.
+    ['PUB485 -']*3+[''],
+])
+def test_isolated_code_ambiguity_or_clipping_still_uses_full_reader(monkeypatch,isolated):
+    image=Image.new('RGB',(300,21),'white')
+    monkeypatch.setattr(identity_ocr,'publisher_images',lambda _: [(image,2)]*4)
+    monkeypatch.setattr(identity_ocr,'publisher_code_images',lambda _: [(image,3)]*4)
+    monkeypatch.setattr(identity_ocr,'amount_images',lambda _: [])
+    replies=iter(['PIJB4S5 - Name']*4+isolated+['PUB465 - Name']*4)
+    ocr=SimpleNamespace(lines=lambda *a,**kw:[Line(next(replies),0,0,100,10)],text=lambda _: 'PUB465 - Name')
+    assert identity_ocr.read_identity(ocr,image,'publisher_number')=='PUB465'

@@ -17,6 +17,13 @@ def publisher_images(image):
     return variants
 
 
+def publisher_code_images(image):
+    # Reduce OCR's word context around the leading code. The separator must
+    # still be recognized, so clipping a longer code cannot yield a match.
+    cell = image.crop((0, 0, min(70, image.width), image.height))
+    return publisher_images(cell)[:4]
+
+
 def clipped_publisher_candidate(line, expected, width):
     visible = normalized(line.text).removesuffix('...').removesuffix('…').rstrip()
     return (len(visible) >= 24 and line.x+line.width >= width-16
@@ -35,6 +42,15 @@ def read_identity(ocr, image, kind):
             quick.append(match[1].upper()+match[2] if match else None)
         if len(quick) == 4 and quick[0] is not None and len(set(quick)) == 1:
             return quick[0]
+        isolated = []
+        for prepared, scale in publisher_code_images(image):
+            text = ' '.join(line.text for line in ocr.lines(prepared, scale=scale)).strip()
+            match = re.match(r'^\s*(PUB|PB)\s*(\d+)\s*[-–]', text, re.I)
+            isolated.append(match[1].upper()+match[2] if match else None)
+        # Require four exact, unanimous reads. No digit substitutions and no
+        # knowledge of the workbook's expected value influence recognition.
+        if len(isolated) == 4 and isolated[0] is not None and len(set(isolated)) == 1:
+            return isolated[0]
     raw = [ocr.text(image).strip()]
     # The same border removal and ClearType enlargement used for amount fields
     # also prevents edit borders from looking like extra license-number digits.
