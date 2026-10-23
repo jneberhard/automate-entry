@@ -118,3 +118,48 @@ def test_saved_copy_keeps_shared_license_rows_and_report_explains_retention(tmp_
         rows = list(csv.reader(file))
     assert rows[1][3] == 'keep_shared_license'
     assert rows[2][3] == 'remove_balance'
+
+
+@pytest.fixture(autouse=True)
+def isolate_results_tab_excel(monkeypatch):
+    monkeypatch.setattr('royalty_entry.workbook.Workbook.save_results_tab',
+                        lambda self, rows, name=None: name)
+
+
+def test_live_run_writes_filtered_tab_and_preflights_before_driver(tmp_path, monkeypatch):
+    source = tmp_path/'source.xlsx'
+    book = Workbook()
+    book.active['H2'], book.active['I2'] = 'Publisher', '123'
+    book.save(source)
+    calls = []
+    def tab(self, rows, name=None):
+        calls.append((set(rows), name))
+        return name
+    monkeypatch.setattr('royalty_entry.workbook.Workbook.save_results_tab', tab)
+    monkeypatch.setattr('royalty_entry.workbook.Workbook.save_filtered',
+                        lambda self, dest, rows, **kw: shutil.copy2(self.path, dest))
+    class Driver:
+        def open_record(self, record):
+            assert calls == [(set(), None)]
+            return True
+        def details(self): return Decimal('-1')
+        def close_record(self): pass
+    logs = []
+    run(source, 'Sheet', 2, 'Q3', True, tmp_path/'runs', Driver, Event(), logs.append)
+    assert calls[1][0] == {2}
+    assert calls[1][1].startswith('Royalty ')
+    assert any(line.startswith('Results tab: Royalty ') for line in logs)
+
+
+def test_locked_source_prevents_payments(tmp_path, monkeypatch):
+    source = tmp_path/'source.xlsx'
+    book = Workbook()
+    book.active['H2'], book.active['I2'] = 'Publisher', '123'
+    book.save(source)
+    monkeypatch.setattr('royalty_entry.workbook.Workbook.save_filtered',
+                        lambda self, dest, rows, **kw: shutil.copy2(self.path, dest))
+    def locked(*args): raise RuntimeError('Save and close the workbook')
+    monkeypatch.setattr('royalty_entry.workbook.Workbook.save_results_tab', locked)
+    def forbidden(): pytest.fail('Driver started before workbook preflight')
+    with pytest.raises(RuntimeError, match='Save and close'):
+        run(source, 'Sheet', 2, 'Q3', True, tmp_path/'runs', forbidden, Event(), lambda _: None)

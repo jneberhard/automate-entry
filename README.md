@@ -25,8 +25,8 @@ During a run, leave the mouse and keyboard alone. **Hold Esc** to stop, or switc
 
 - Publisher is in H; license is in I. Text license numbers retain leading zeroes. Numeric license numbers with a zero-padding number format are padded accordingly.
 - Each license/publisher pair is evaluated once, including duplicates that are not adjacent. A different publisher is processed separately. Publisher matching ignores case and repeated whitespace, but never uses a fuzzy match.
-- Provisional Balance **below −0.01**: remove that pair's rows from the output copy.
-- Balance **−0.01 or greater**: inspect Financials. No Transfer: remove that pair's rows from the output copy.
+- Provisional Balance **below −0.01**: remove that pair's rows from the results tab.
+- Balance **−0.01 or greater**: inspect Financials. No Transfer: remove that pair's rows from the results tab.
 - Exactly one Transfer: add **PAYMENT OF ROYALTIES**, with amount **Transfer − 0.01**, and the entered reference. Preserve the form's default Date and Royalty Period, as demonstrated.
 - Select the type in **Transaction Types**, click its OK, then enter the amount/reference. Save with the three OK buttons: transaction, Financial Transactions, license Properties.
 - Verify the updated balance in both Financial Transactions and Details before considering the pair complete.
@@ -36,7 +36,7 @@ During a run, leave the mouse and keyboard alone. **Hold Esc** to stop, or switc
 - Transfer amounts are reread from the matching row's cell with repeated agreement, including selected blue rows. The amount crop excludes the grid separator so it cannot become an extra digit. Historical non-Transfer amounts do not affect the decision.
 - The transaction-type chooser includes the full first letter and requires two exact reads of PAYMENT OF ROYALTIES at the same row position. The returned entry-type field also includes the complete label before verification.
 - Amounts are entered directly with keyboard input and checked against two separate screen reads. They do not depend on copying from the legacy numeric edit. Other pasted fields that cannot copy back must match two exact displayed readings; clipboard marker text is never accepted as verification.
-- Duplicate rows remain for paid pairs. All rows of rejected duplicate pairs are removed from the output copy. The original workbook is never edited.
+- Duplicate rows remain for paid pairs. All rows of rejected duplicate pairs are removed from the results tab. Live runs add a new filtered tab to the selected workbook; the source tab is preserved. If any publisher receives payment, all rows for that license are retained.
 
 ## Two monitors and calibration
 
@@ -67,16 +67,16 @@ Do not move, resize or reorder remote windows after calibration. If you opened a
 
 Each run creates a dated folder inside `%LOCALAPPDATA%\RoyaltyEntry\runs` containing:
 
-- An unchanged workbook copy for previews, or a filtered workbook copy for live runs.
+- A recovery workbook copy. Live runs also save a uniquely named `Royalty YYYYMMDD-HHMMSS` tab inside the selected workbook.
 - `report.csv`, showing original row numbers, decisions, payment amounts, and any stop/error.
 
-Only the selected worksheet's rejected rows are deleted. Other worksheets remain in the copied workbook. Native Excel handles formula/reference adjustments during deletion. Workbook macros are disabled and external-link updates are suppressed when the copy is opened. Any remaining native workbook-specific behavior should be checked on the first real output.
+Live runs copy the selected source worksheet to a new tab and delete rejected rows only from that new tab. Save and close the workbook before starting: write access is checked before payments begin. Native Excel preserves formatting and adjusts formulas during deletion. Macros and workbook events are disabled and external-link updates are suppressed. Preview runs do not add tabs.
 
 `%LOCALAPPDATA%\RoyaltyEntry\runs\journal.sqlite3` is shared by all copies of the app running under this Windows account. It records completed pairs by license, publisher and normalized reference, even when the program is restarted or a different workbook is selected. A matching completed entry is not added again. Use the same reference for a resumed run. Keep this journal; deleting it removes this protection. Other Windows accounts or computers do not share it automatically.
 
 Immediately before saving a payment, its journal state becomes `pending`. If the connection drops or a save is interrupted, the program will stop rather than add it again. Use **Interrupted entries…** only after closing any unfinished dialogs and reopening Financials to check the actual saved Type, amount and reference. Mark it verified saved, or verified not saved to permit a retry. The program cannot make a database transaction atomic across Remote Desktop and the local journal.
 
-If creating the final filtered workbook fails after some payments were saved, those payments remain saved. The original file stays unchanged. Preserve the journal and report, fix the Excel/output problem and rerun with the same source and reference; recorded entries will be skipped and recorded removal decisions reapplied.
+If creating the final filtered workbook fails after some payments were saved, those payments remain saved. The source tab stays unchanged; use the recovery workbook if the results tab cannot be saved. Preserve the journal and report, fix the Excel/output problem and rerun with the same source and reference; recorded entries will be skipped and recorded removal decisions reapplied.
 
 ## Development and validation
 

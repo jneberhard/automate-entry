@@ -58,7 +58,7 @@ class App(tk.Tk):
         ttk.Entry(form, textvariable=self.reference).grid(row=2, column=1, columnspan=2, sticky='ew')
         ttk.Label(form, text='First data row').grid(row=3, column=0, sticky='w', pady=7)
         ttk.Spinbox(form, from_=1, to=1048576, textvariable=self.first, width=8).grid(row=3, column=1, sticky='w')
-        ttk.Label(panel, text='Publisher: column H     License number: column I     Original workbook stays unchanged.').pack(anchor='w', pady=(9, 14))
+        ttk.Label(panel, text='Publisher: column H     License number: column I     Source tab stays unchanged; results go to a new tab.').pack(anchor='w', pady=(9, 14))
         tools = ttk.Frame(panel)
         tools.pack(fill='x')
         self.calibrate = ttk.Button(tools, text='Screen calibration…', command=self.edit_profile)
@@ -69,7 +69,7 @@ class App(tk.Tk):
         self.balance_test.pack(side='left', padx=(0, 8))
         self.recovery = ttk.Button(tools, text='Interrupted entries…', command=self.recover)
         self.recovery.pack(side='left')
-        ttk.Checkbutton(panel, text='Enable saving payments and removing rejected rows in the workbook copy',
+        ttk.Checkbutton(panel, text='Enable saving payments and adding a filtered results tab to the workbook',
                         variable=self.live).pack(anchor='w', pady=(17, 8))
         ttk.Label(panel, text='Unchecked = preview only: reads balances and transfers, writes a report, adds no payments.',
                   wraplength=750).pack(anchor='w')
@@ -201,7 +201,7 @@ class App(tk.Tk):
             else:
                 progress = lambda completed, total, detail: self.messages.put(('progress', (completed, total, detail)))
                 folder = run(*settings[:4], settings[4], ROOT/'runs', driver_factory, self.stop, log, progress=progress)
-                result = f'{"Live run" if settings[4] else "Preview"} complete. Results: {folder}'
+                result = (f'Live run complete. Results tab saved in {settings[0]}. Report: {folder}' if settings[4] else f'Preview complete. Report: {folder}')
             self.messages.put(('done', result))
         except Exception as exc:
             self.messages.put(('error', str(exc) or type(exc).__name__))

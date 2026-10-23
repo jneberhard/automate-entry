@@ -71,6 +71,63 @@ class Workbook:
                         pythoncom.CoUninitialize()
         os.replace(temp, destination)
 
+    def save_results_tab(self, remove_rows, name=None):
+        """Copy the source tab within Excel and save only after filtering succeeds.
+
+        With no name, check write access before any payments; do not save.
+        The workbook must be closed in other Excel instances.
+        """
+        sys.coinit_flags = 0
+        import pythoncom
+        import win32com.client
+        pythoncom.CoInitializeEx(pythoncom.COINIT_MULTITHREADED)
+        excel = book = None
+        try:
+            excel = win32com.client.DispatchEx('Excel.Application')
+            excel.Visible = False
+            excel.DisplayAlerts = False
+            excel.AskToUpdateLinks = False
+            excel.AutomationSecurity = 3
+            excel.EnableEvents = False
+            book = excel.Workbooks.Open(str(self.path), UpdateLinks=0, ReadOnly=False)
+            if book.ReadOnly:
+                raise RuntimeError('Save and close the workbook in Excel before running; it must be writable to add a results tab.')
+            if book.ProtectStructure:
+                raise RuntimeError('Workbook structure is protected; Excel cannot add a results tab.')
+            if name is None:
+                return
+            existing = {str(book.Worksheets(i).Name).casefold() for i in range(1, book.Worksheets.Count+1)}
+            base, candidate, suffix = name[:31], name[:31], 2
+            while candidate.casefold() in existing:
+                tail = f' ({suffix})'
+                candidate = base[:31-len(tail)] + tail
+                suffix += 1
+            source = book.Worksheets(self.sheet_name)
+            # Dynamic COM may invoke Copy as a property with no arguments,
+            # creating a different workbook. Invoke its method explicitly.
+            count = book.Worksheets.Count
+            source._oleobj_.InvokeTypes(0x227, 0, pythoncom.DISPATCH_METHOD,
+                (24, 0), ((12, 17), (12, 17)),
+                pythoncom.Empty, book.Worksheets(count))
+            if book.Worksheets.Count != count+1:
+                raise RuntimeError('Excel did not create the results tab in the selected workbook; no changes saved.')
+            result = book.Worksheets(book.Worksheets.Count)
+            result.Name = candidate
+            for row in sorted(remove_rows, reverse=True):
+                result.Rows(row).Delete()
+            book.Save()
+            return candidate
+        finally:
+            try:
+                if book is not None:
+                    book.Close(SaveChanges=False)
+            finally:
+                try:
+                    if excel is not None:
+                        excel.Quit()
+                finally:
+                    pythoncom.CoUninitialize()
+
 
 def sheet_names(path):
     from openpyxl import load_workbook

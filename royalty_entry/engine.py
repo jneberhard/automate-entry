@@ -120,6 +120,8 @@ def run(source, sheet, first_row, reference, live, root, driver_factory, stop, l
         destination = folder / (Path(source).stem + '-filtered' + Path(source).suffix)
         # Check output access before any financial changes.
         workbook.save_filtered(destination, set(), use_excel=live)
+        if live:
+            workbook.save_results_tab(set())  # Fail before payments if the source cannot be updated.
         journal = Journal(root / 'journal.sqlite3')
         report_path = folder / 'report.csv'
         removed = set()
@@ -186,7 +188,14 @@ def run(source, sheet, first_row, reference, live, root, driver_factory, stop, l
             except Exception as exc:
                 raise RuntimeError(f'Entries already saved remain in License Manager. Could not create filtered workbook: {exc}. Original unchanged; use {report_path} to recover the removal decisions.') from exc
         log(f'Report: {report_path}')
-        log(f'Workbook copy: {destination}')
+        log(f'Recovery workbook copy: {destination}')
+        if live:
+            try:
+                tab = workbook.save_results_tab(removed, 'Royalty '+folder.name[:15])
+            except Exception as exc:
+                raise RuntimeError(f'Could not save the results tab: {exc}. Payments already saved remain in License Manager. Recovery workbook: {destination}. Report: {report_path}') from exc
+            log(f'Results workbook: {workbook.path}')
+            log(f'Results tab: {tab}')
         if failure:
             raise RuntimeError(f'{failure}\nPartial results: {folder}') from failure
         return folder
