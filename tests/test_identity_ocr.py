@@ -93,3 +93,22 @@ def test_publisher_number_is_read_without_relying_on_name(code,monkeypatch):
 def test_different_publisher_numbers_never_merge(monkeypatch):
     ocr,image=reader(monkeypatch,['PUB832 - Name','PUB832 - Name','PUB833 - Name','PUB833 - Name'])
     with pytest.raises(ValueError): identity_ocr.read_identity(ocr,image,'publisher_number')
+
+
+def test_reported_pub824_case_resolves_repeated_ocr_outliers(monkeypatch):
+    values=['PUB824 - UNIVERSAL MUSIC CORP.']*3 + ['PUBS24 - UNIVERSAL MUSIC CORP.',
+        'PUB824 - UNIVERSAL MUSIC CORP.','PUB624 - UNIVQSAL MUSIC CORP.',
+        'PUB624 - UNIVERSAL MUSIC CORP.'] + ['PUB824 - UNIVERSAL MUSIC CORP.']*8
+    ocr,image=reader(monkeypatch,values)
+    assert identity_ocr.read_identity(ocr,image,'publisher_number')=='PUB824'
+
+
+@pytest.mark.parametrize('values',[
+    ['PUB824 - A']*3+['PUB624 - B']*2,
+    ['PUB824 - A']*6+['PUB624 - B']*2,
+    ['PUB824 - A']*4+['PUB624 - B']*4,
+    ['PUBS24 - A']*15,
+])
+def test_weak_or_invalid_code_consensus_still_stops(values,monkeypatch):
+    ocr,image=reader(monkeypatch,values)
+    with pytest.raises(ValueError): identity_ocr.read_identity(ocr,image,'publisher_number')

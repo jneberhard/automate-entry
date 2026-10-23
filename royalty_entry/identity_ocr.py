@@ -55,6 +55,14 @@ def read_identity(ocr, image, kind):
             raise ValueError('Unknown identity field')
     counts = Counter(values)
     confirmed = [value for value, count in counts.items() if count >= 2]
+    if kind == 'publisher_number' and len(confirmed) > 1:
+        # A high-contrast rendering can repeatedly read 8 as 6. Resolve only
+        # an overwhelming exact-code consensus (at least 80% of valid reads),
+        # never by substituting digits or by preferring the expected workbook
+        # value. The caller still verifies this code on two fresh screenshots.
+        confirmed = [value for value, count in counts.items()
+                     if count >= 3 and count*5 >= len(values)*4
+                     and all(count > other for key, other in counts.items() if key != value)]
     if kind == 'publisher':
         minimum = min(3, len(raw)//2+1)
         confirmed = [value for value, count in counts.items()
