@@ -39,12 +39,13 @@ def amount_retry_images(image):
 def amount_full_field_images(image):
     """Confirm using intact edit pixels rather than the tight ink crop."""
     variants = []
-    for trim in (0, 1):
-        cell = image.crop((0,trim,image.width,image.height-trim))
-        for mode in ('RGB','L'):
-            field = ImageOps.expand(cell.convert(mode), border=15,
-                                    fill='white' if mode == 'RGB' else 255).convert('RGB')
-            variants.extend((field,scale) for scale in (2,3))
+    # Do not trim edit edges here. This batch independently preserves all
+    # source pixels; trimming changes the border/glyph context and can invent
+    # a leading digit or erase the minus in this legacy control.
+    for mode in ('RGB','L'):
+        field = ImageOps.expand(image.convert(mode), border=15,
+                                fill='white' if mode == 'RGB' else 255).convert('RGB')
+        variants.extend((field,scale) for scale in (2,3))
     return variants
 
 

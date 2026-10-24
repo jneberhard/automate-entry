@@ -180,3 +180,13 @@ def test_reported_outliers_require_separate_full_field_confirmation(confirmation
     if expected is None:
         with pytest.raises(ValueError):amount_ocr.read_amount(ocr,image)
     else:assert amount_ocr.read_amount(ocr,image)==expected
+
+
+def test_full_field_confirmation_preserves_every_source_pixel():
+    image=Image.new('RGB',(115,21),'white')
+    ImageDraw.Draw(image).line((0,0,114,0),fill=(160,160,160))
+    variants=amount_ocr.amount_full_field_images(image)
+    assert len(variants)==4
+    for prepared,scale in variants:
+        assert prepared.size==(145,51)
+        assert prepared.crop((15,15,130,36)).tobytes()==image.tobytes()
