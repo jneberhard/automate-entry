@@ -2,7 +2,7 @@ import csv
 from datetime import datetime
 from pathlib import Path
 import os
-from .desktop import Cancelled
+from .desktop import Cancelled, PaymentNotSaved
 from .journal import Journal
 from .rules import CENT, royalty_amount
 from .workbook import Workbook
@@ -92,7 +92,13 @@ def process_records(records, driver, reference, journal, live, report, stop):
             driver.prepare_payment(amount, reference)
             # The intent is durable before the first of the three save/OK clicks.
             journal.put(record, reference, 'pending', amount, 'Save about to begin; inspect manually if interrupted')
-            driver.commit_payment(amount, reference, balance)
+            try:
+                driver.commit_payment(amount, reference, balance)
+            except PaymentNotSaved as exc:
+                # This explicit exception is raised only before the first OK.
+                # Unknown failures after a save attempt must remain pending.
+                journal.put(record, reference, 'not_saved', amount, str(exc))
+                raise
             journal.put(record, reference, 'paid', amount, 'All three OK steps and balances verified')
             status = 'paid'
         else:

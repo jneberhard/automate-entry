@@ -145,3 +145,13 @@ def test_publisher_number_upgrade_honors_existing_paid_journal(journal):
     journal.db.execute("INSERT INTO entries VALUES ('123','publisher a','q3','paid','-.10','','')")
     journal.db.commit()
     assert journal.get(Record(2,'123','Publisher A','PUB832'),'Q3')[0]=='legacy_review'
+
+def test_failed_pre_save_verification_does_not_leave_uncertain_pending_status(journal):
+    from royalty_entry.desktop import PaymentNotSaved
+    class NotSaved(Driver):
+        def commit_payment(self,*args):raise PaymentNotSaved('Reference unreadable; no save click sent')
+    with pytest.raises(PaymentNotSaved):run(journal,NotSaved())
+    assert journal.get(Record(2,'123','Publisher','PUB1'),'HFA Payment 2026 Q3')[0]=='not_saved'
+    retry=Driver()
+    run(journal,retry)
+    assert retry.saved

@@ -17,6 +17,10 @@ class PublisherMismatch(ScreenError):
     pass
 
 
+class PaymentNotSaved(ScreenError):
+    """Verification stopped before the first save click was attempted."""
+
+
 class Cancelled(RuntimeError):
     pass
 
@@ -242,6 +246,9 @@ class RemoteDriver:
         return image.crop(box)
 
     def text(self, image, key):
+        if key == 'entry_reference':
+            from .text_ocr import read_reference
+            return read_reference(self.ocr, self.crop(image, key))
         if key in {'details_balance', 'financials_balance', 'entry_amount'}:
             from .amount_ocr import read_amount
             return format(read_amount(self.ocr, self.crop(image, key)), 'f')
@@ -632,12 +639,26 @@ class RemoteDriver:
         self.paste('entry_amount', f'{amount:.2f}', 'entry', 'entry_amount')
         self.paste('entry_reference', reference, 'entry', 'entry_reference')
 
+    def verify_payment_fields(self, amount, reference):
+        try:
+            for attempt in range(2):
+                if attempt:
+                    self.wait(.35)
+                image = self.expect('entry')
+                actual = (normalized(self.text(image, 'entry_type')),
+                          money(self.text(image, 'entry_amount')),
+                          self.text(image, 'entry_reference'))
+                expected = ('payment of royalties', amount, reference)
+                errors = [f'{field}: expected {wanted!r}, read {read!r}'
+                          for field, wanted, read in zip(('Type', 'Amount', 'Reference'), expected, actual)
+                          if wanted != read]
+                if errors:
+                    raise ScreenError('; '.join(errors))
+        except (ScreenError, ValueError) as exc:
+            raise PaymentNotSaved(f'Payment verification failed: {exc}. No save click was sent.') from exc
+
     def commit_payment(self, amount, reference, before):
-        image = self.expect('entry')
-        if (normalized(self.text(image, 'entry_type')) != 'payment of royalties'
-                or money(self.text(image, 'entry_amount')) != amount
-                or self.text(image, 'entry_reference') != reference):
-            raise ScreenError('Payment verification failed; no save click was sent')
+        self.verify_payment_fields(amount, reference)
         self.click('entry_ok', 'entry')
         self.ready('financials')
         expected = before + amount
