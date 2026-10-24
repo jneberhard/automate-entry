@@ -5,7 +5,7 @@ from ctypes import wintypes
 KEYS = {'ctrl': 0x11, 'alt': 0x12, 'shift': 0x10, 'home': 0x24,
         'end': 0x23, 'pagedown': 0x22, 'tab': 0x09, 'add': 0x6B,
         'a': 0x41, 'c': 0x43, 'v': 0x56, 'x': 0x58,
-        'space': 0x20, 'escape': 0x1B, 'subtract': 0x6D}
+        'space': 0x20, 'escape': 0x1B, 'esc': 0x1B, 'subtract': 0x6D}
 EXTENDED = {'home', 'end', 'pagedown'}
 
 

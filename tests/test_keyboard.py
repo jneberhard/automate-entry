@@ -38,3 +38,17 @@ def test_partial_send_releases_keys_and_stops(monkeypatch):
     with pytest.raises(RuntimeError, match='complete'):
         keyboard.chord('ctrl', 'v')
     assert calls[-1] == [2, 2]
+
+@pytest.mark.parametrize('name',['escape','esc'])
+def test_properties_cancel_sends_escape_down_and_up(monkeypatch,name):
+    class Call:
+        def __init__(self,fn):self.fn=fn
+        def __call__(self,*args):return self.fn(*args)
+    events=[]
+    def send(count,sequence,size):
+        events.extend((item.payload.keyboard.vk,item.payload.keyboard.flags) for item in sequence)
+        return count
+    api=SimpleNamespace(SendInput=Call(send),MapVirtualKeyW=Call(lambda vk,mode:vk))
+    monkeypatch.setattr(keyboard.ctypes,'WinDLL',lambda *a,**k:api)
+    keyboard.chord(name)
+    assert events==[(0x1B,0),(0x1B,2)]

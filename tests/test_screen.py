@@ -299,4 +299,4 @@ def test_unknown_grid_candidate_requires_properties_and_mismatch_cancels(first_c
         assert calls==['open','verify']
     else:
         assert d.open_record(record)
-        assert calls==['open','verify',('cancel',('general','esc')),'open','verify']
+        assert calls==['open','verify',('cancel',('general','escape')),'open','verify']

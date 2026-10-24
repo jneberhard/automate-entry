@@ -571,7 +571,7 @@ class RemoteDriver:
                         raise  # A readable grid/Properties disagreement stops.
                     # This was only an unknown candidate. Cancel Properties
                     # and continue, preserving first-match order on the page.
-                    self.keys('general', 'esc')
+                    self.keys('general', 'escape')
                     self.ready('manager')
                     continue
                 return True
