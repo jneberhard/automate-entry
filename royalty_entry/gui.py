@@ -213,6 +213,8 @@ class App(tk.Tk):
                 for key in ('result_licenses', 'result_publishers'):
                     lines = driver.ocr.lines(driver.crop(image, key))
                     log(key+': '+repr([line.text for line in lines[:10]]))
+                rows = driver.table(image, 'result_licenses', 'result_publisher_numbers')
+                log('Verified license / publisher code rows: '+repr([(a.text,b.text) for a,b in rows]))
                 result = 'Screen test passed. Run a preview before enabling payments.'
             else:
                 progress = lambda completed, total, detail: self.messages.put(('progress', (completed, total, detail)))

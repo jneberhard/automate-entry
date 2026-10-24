@@ -234,6 +234,7 @@ def test_missing_code_never_falls_back_to_name_on_screen():
 
 
 def test_verified_current_license_search_is_reused_without_retyping():
+    from types import SimpleNamespace
     from royalty_entry.desktop import RemoteDriver
     from royalty_entry.rules import Record
     driver=RemoteDriver.__new__(RemoteDriver);driver.profile=DEFAULT
@@ -243,7 +244,33 @@ def test_verified_current_license_search_is_reused_without_retyping():
     clicks=[];driver.click=lambda *args,**kw:clicks.append(args[0])
     driver.ready=lambda stage:None
     driver.verify_open_identity=lambda record,image:None
+    driver.crop=lambda *args:None
+    driver.ocr=SimpleNamespace(lines=lambda *args:[Line('123',0,20,30,10)])
     driver.pages=lambda *args:[(None,[(Line('123',0,20,30,10),Line('PUB824',0,20,50,10))])]
     assert driver.open_record(Record(2,'123','Display name','PUB824'))
     assert len(clicks)==1
     assert clicks[0]!='search_button'
+
+@pytest.mark.parametrize('mismatch',[False,True])
+def test_single_search_result_requires_properties_identity_before_success(mismatch):
+    from types import SimpleNamespace
+    from royalty_entry.desktop import RemoteDriver,PublisherMismatch
+    from royalty_entry.rules import Record
+    d=RemoteDriver.__new__(RemoteDriver);d.profile=DEFAULT
+    d.expect=lambda _:object()
+    d.text=lambda image,key: '1265484733' if key=='search_value' else '1 License (Number: 1265484733)'
+    d.crop=lambda *a:None
+    d.ocr=SimpleNamespace(lines=lambda *a:[Line('1265484733',0,4,80,10)])
+    d.ready=lambda _:object()
+    events=[]
+    d.click=lambda *a,**k:events.append('open')
+    def verify(*args):
+        events.append('verify')
+        if mismatch:raise PublisherMismatch('Wrong publisher code')
+    d.verify_open_identity=verify
+    d.pages=lambda *a:pytest.fail('A single result uses Properties to verify its code')
+    record=Record(14,'1265484733','Hinshaw Music, Inc.','PUB544')
+    if mismatch:
+        with pytest.raises(PublisherMismatch): d.open_record(record)
+    else:assert d.open_record(record)
+    assert events==['open','verify']

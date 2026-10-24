@@ -405,6 +405,19 @@ class RemoteDriver:
                 return align_code_candidates(left, readings)
             except ValueError:
                 pass
+            # Small white codes on the selected blue row can be omitted by
+            # every whole-grid OCR pass. Remove selection colors and retry,
+            # retaining the same coordinates and all exact-code conflicts.
+            from .grid_codes import unhighlight_grid
+            prepared = unhighlight_grid(grid)
+            for scale in (2, 3, 4):
+                right = publisher_codes(self.ocr.words(prepared, scale=scale))
+                counts.append(len(right))
+                readings.extend(right)
+            try:
+                return align_code_candidates(left, readings)
+            except ValueError:
+                pass
             raise ScreenError(f'Could not align visible publisher codes with license rows: {len(left)} licenses / {counts} code readings. Keep the Publisher Code column visible.')
         right = self.ocr.lines(self.crop(image, right_key))
         try:
@@ -501,6 +514,16 @@ class RemoteDriver:
             self.wait(0.5)
         if int(match[1]) == 0:
             return False
+        if int(match[1]) == 1:
+            # A single verified search result can be opened without decoding
+            # its tiny grid code. Properties still independently confirms BOTH
+            # complete identities before any financial step is allowed.
+            lines = self.ocr.lines(self.crop(image, 'result_licenses'))
+            if len(lines) == 1 and record.license in lines[0].text:
+                box = self.profile['regions']['result_licenses']
+                self.click((box[0]+50, round(box[1]+lines[0].y+lines[0].height/2)), 'manager', clicks=2)
+                self.verify_open_identity(record, self.ready('general'))
+                return True
         column = 'result_publisher_numbers'
         for image, rows in self.pages('manager', 'result_focus', 'result_licenses', column):
             def publisher_matches(line):

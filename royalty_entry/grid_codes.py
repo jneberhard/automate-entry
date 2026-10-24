@@ -3,6 +3,28 @@ import re
 from .ocr import Line
 
 
+def unhighlight_grid(image):
+    """Turn white-on-blue selected rows into dark text on a light background.
+
+    Preserve row coordinates so recovered codes still align with license rows.
+    """
+    import numpy as np
+    from PIL import ImageOps
+    pixels = np.asarray(image.convert('RGB')).astype('int16')
+    blue = (pixels[:,:,2] > pixels[:,:,0]+40) & (pixels[:,:,2] > pixels[:,:,1]+10)
+    selected = (blue.sum(axis=1) > image.width*.2).tolist()
+    result = image.copy()
+    start = None
+    for y, active in enumerate(selected+[False]):
+        if active and start is None:
+            start = y
+        elif not active and start is not None:
+            band = image.crop((0,start,image.width,y)).convert('L')
+            result.paste(ImageOps.autocontrast(ImageOps.invert(band)).convert('RGB'),(0,start))
+            start = None
+    return result
+
+
 def publisher_codes(words):
     result = []
     for word in words:

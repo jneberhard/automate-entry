@@ -34,3 +34,31 @@ def test_conflicts_missing_and_unmatched_rows_are_rejected(codes):
 def test_extra_code_without_a_license_row_is_rejected():
     with pytest.raises(ValueError):align_code_candidates([Line('123',0,20,30,10)],
         [Line('PUB824',700,20,40,10),Line('PUB826',700,50,40,10)])
+
+def test_unhighlight_keeps_row_positions_and_unselected_rows():
+    from PIL import Image,ImageDraw
+    from royalty_entry.grid_codes import unhighlight_grid
+    image=Image.new('RGB',(200,60),'white')
+    draw=ImageDraw.Draw(image)
+    draw.rectangle((0,10,199,25),fill=(0,120,215))
+    draw.rectangle((20,14,45,20),fill='white')
+    draw.rectangle((20,40,45,46),fill='black')
+    fixed=unhighlight_grid(image)
+    assert fixed.getpixel((25,16))==(0,0,0)
+    assert fixed.getpixel((5,16))==(255,255,255)
+    assert fixed.crop((0,30,200,60)).tobytes()==image.crop((0,30,200,60)).tobytes()
+
+
+def test_highlight_retry_aligns_recovered_code_to_original_license_row():
+    from types import SimpleNamespace
+    from PIL import Image
+    from royalty_entry.desktop import RemoteDriver
+    from royalty_entry.profile import DEFAULT
+    d=RemoteDriver.__new__(RemoteDriver);d.profile=DEFAULT
+    d.crop=lambda *a: Image.new('RGB',(150,40),'white')
+    d.publisher_grid=lambda _: Image.new('RGB',(880,40),(0,120,215))
+    replies=iter([[],[],[],[Line('PUB544',700,4,45,10)]]*1+
+                 [[Line('PUB544',700,4,45,10)]]*2)
+    d.ocr=SimpleNamespace(lines=lambda *a:[Line('1265484733',0,4,80,10)],words=lambda *a,**k:next(replies))
+    rows=d.table(None,'result_licenses','result_publisher_numbers')
+    assert [(a.text,b.text) for a,b in rows]==[('1265484733','PUB544')]
