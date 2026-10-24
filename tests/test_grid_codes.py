@@ -16,6 +16,13 @@ def test_split_prefix_and_digits_keep_row_identity():
     assert [c.text for c in publisher_codes(words)]==['PUB832']
 
 
+@pytest.mark.parametrize('prefix',['PIJB','PLIB','PLJB'])
+def test_split_u_in_prefix_keeps_exact_digits(prefix):
+    assert [c.text for c in publisher_codes([Line(prefix+'544',0,20,45,10)])]==['PUB544']
+    assert [c.text for c in publisher_codes([Line(prefix,0,20,20,10),Line('544',22,20,20,10)])]==['PUB544']
+    assert publisher_codes([Line(prefix+'S44',0,20,45,10)])==[]
+
+
 def test_exact_readings_from_different_passes_fill_only_their_own_rows():
     licenses=[Line('123',0,20,30,10),Line('123',0,37,30,10)]
     readings=[Line('PUB824',700,20,40,10),Line('PB1395',700,37,40,10),Line('PB1395',700,37,40,10)]

@@ -29,16 +29,21 @@ def publisher_codes(words):
     result = []
     for word in words:
         text = word.text.upper()
-        if re.fullmatch(r'(?:PUB|PB)\d+', text):
-            result.append(Line(text, word.x, word.y, word.width, word.height))
-        elif text in {'PUB', 'PB'}:
+        match = re.fullmatch(r'(P(?:U|IJ|LI|LJ)B|PB)(\d+)', text)
+        if match:
+            # ClearType splits U into IJ/LI/LJ. Normalize only this bounded
+            # prefix; digits and independently verified identities stay exact.
+            code = ('PB' if match[1] == 'PB' else 'PUB') + match[2]
+            result.append(Line(code, word.x, word.y, word.width, word.height))
+        elif text in {'PUB', 'PIJB', 'PLIB', 'PLJB', 'PB'}:
             # Some fonts split prefix and digits into adjacent OCR words.
             neighbors = [other for other in words if re.fullmatch(r'\d+', other.text)
                          and abs((other.y+other.height/2)-(word.y+word.height/2)) < 4
                          and 0 <= other.x-(word.x+word.width) <= 12]
             if len(neighbors) == 1:
                 other = neighbors[0]
-                result.append(Line(text+other.text, word.x, word.y,
+                prefix = 'PB' if text == 'PB' else 'PUB'
+                result.append(Line(prefix+other.text, word.x, word.y,
                                    other.x+other.width-word.x, word.height))
     return sorted(result, key=lambda line: (line.y, line.x))
 
