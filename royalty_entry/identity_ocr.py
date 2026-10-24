@@ -42,14 +42,14 @@ def read_identity(ocr, image, kind):
         for prepared, scale in variants:
             text = ' '.join(line.text for line in ocr.lines(prepared, scale=scale)).strip()
             match = re.match(r'^\s*(PUB|PB)\s*(\d+)\s*[-–]', text, re.I)
-            quick.append(match[1].upper()+match[2] if match else None)
+            quick.append(match[1].upper()+match[2] if match and (match[1].upper() != 'PB' or match[2].startswith('1')) else None)
         if len(quick) == 4 and quick[0] is not None and len(set(quick)) == 1:
             return quick[0]
         isolated = []
         for index, (prepared, scale) in enumerate(publisher_code_images(image)):
             text = ' '.join(line.text for line in ocr.lines(prepared, scale=scale)).strip()
             match = re.match(r'^\s*(PUB|PB)\s*(\d+)\s*[-–]', text, re.I)
-            isolated.append(match[1].upper()+match[2] if match else None)
+            isolated.append(match[1].upper()+match[2] if match and (match[1].upper() != 'PB' or match[2].startswith('1')) else None)
             group = isolated[-4:]
             if (index+1) % 4 == 0 and len(group) == 4 and group[0] is not None and len(set(group)) == 1:
                 # Each crop must agree across both color modes and scales.
@@ -81,7 +81,7 @@ def read_identity(ocr, image, kind):
         elif kind == 'publisher_number':
             # Read only the leading code, never digits from the publisher name.
             match = re.match(r'^\s*(P(?:U|IJ|LI)B|PB)\s*(\d+)\s*[-–]', text, re.I)
-            if match:
+            if match and (match[1].upper() != 'PB' or match[2].startswith('1')):
                 prefix = 'PB' if match[1].upper() == 'PB' else 'PUB'
                 values.append(prefix + match[2])
         elif kind == 'publisher':

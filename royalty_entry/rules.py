@@ -8,8 +8,8 @@ CENT = Decimal('0.01')
 
 def publisher_number(value):
     text = re.sub(r'\s+', '', str(value or '')).upper()
-    if not re.fullmatch(r'(?:PUB|PB)\d+', text):
-        raise ValueError('Publisher number must be PUB or PB followed by digits')
+    if not re.fullmatch(r'(?:PUB\d+|PB1\d*)', text):
+        raise ValueError('Publisher number must start with PUB or PB1 and contain only digits after the prefix')
     return text
 
 

@@ -69,3 +69,46 @@ def test_highlight_retry_aligns_recovered_code_to_original_license_row():
     d.ocr=SimpleNamespace(lines=lambda *a:[Line('1265484733',0,4,80,10)],words=lambda *a,**k:next(replies))
     rows=d.table(None,'result_licenses','result_publisher_numbers')
     assert [(a.text,b.text) for a,b in rows]==[('1265484733','PUB544')]
+
+@pytest.mark.parametrize('readings,expected',[
+    (['PUB485']*4,['PUB485']),
+    (['PUB485','PUB486','PUB485','PUB486'],[]),
+    (['PUB4S5']*4,[]),
+])
+def test_missing_cell_is_read_in_its_own_row_without_guessing(readings,expected):
+    from PIL import Image
+    from types import SimpleNamespace
+    from royalty_entry.grid_codes import recover_code_cells
+    licenses=[Line('123',0,y,60,10) for y in (4,21,38)]
+    anchors=[Line('PUB485',708,4,37,10),Line('PUB690',708,38,37,10)]
+    stream=iter(readings);sizes=[]
+    def words(image,**kw):
+        sizes.append(image.size)
+        return [Line(next(stream),19,20,37,9)]
+    got=recover_code_cells(SimpleNamespace(words=words),Image.new('RGB',(880,100),'white'),licenses,anchors)
+    assert [line.text for line in got]==expected
+    if got:assert got[0].y==21
+    assert len(sizes)==4 and all(height<=48 for width,height in sizes)
+
+
+def test_missing_cell_does_not_infer_a_column_or_replace_existing_conflicts():
+    from PIL import Image
+    from types import SimpleNamespace
+    from royalty_entry.grid_codes import recover_code_cells
+    def forbidden(*a,**k):pytest.fail('No unambiguous column or missing cell to read')
+    ocr=SimpleNamespace(words=forbidden)
+    licenses=[Line('123',0,4,60,10)]
+    grid=Image.new('RGB',(880,100),'white')
+    assert recover_code_cells(ocr,grid,licenses,[])==[]
+    conflicting=[Line('PUB485',708,4,37,10),Line('PUB486',708,4,37,10)]
+    assert recover_code_cells(ocr,grid,licenses,conflicting)==[]
+    with pytest.raises(ValueError):align_code_candidates(licenses,conflicting)
+
+
+@pytest.mark.parametrize('code,expected',[('PUB485',True),('PB1395',True),('PB1',True),('PB290',False),('PB832',False),('PUB4S5',False)])
+def test_only_pub_or_pb1_prefixes_and_exact_digits_are_accepted(code,expected):
+    from royalty_entry.rules import publisher_number
+    assert bool(publisher_codes([Line(code,10,20,45,10)])) is expected
+    if expected:assert publisher_number(code)==code
+    else:
+        with pytest.raises(ValueError):publisher_number(code)

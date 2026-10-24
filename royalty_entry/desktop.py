@@ -425,7 +425,12 @@ class RemoteDriver:
                 return align_code_candidates(left, readings)
             except ValueError:
                 pass
-            raise ScreenError(f'Could not align visible publisher codes with license rows: {len(left)} licenses / {counts} code readings. Keep the Publisher Code column visible.')
+            from .grid_codes import recover_code_cells
+            readings.extend(recover_code_cells(self.ocr, grid, left, readings))
+            try:
+                return align_code_candidates(left, readings)
+            except ValueError as exc:
+                raise ScreenError(f'Could not read an exact publisher code on every visible license row: {len(left)} licenses / {counts} whole-grid readings; {exc}. No publisher name was used for matching.') from exc
         right = self.ocr.lines(self.crop(image, right_key))
         try:
             return aligned_rows(left, right)

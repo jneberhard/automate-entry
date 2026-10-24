@@ -1,6 +1,7 @@
 """Locate exact PUB/PB codes anywhere in the visible search-result grid."""
 import re
 from .ocr import Line
+from .rules import publisher_number
 
 
 def unhighlight_grid(image):
@@ -34,6 +35,10 @@ def publisher_codes(words):
             # ClearType splits U into IJ/LI/LJ. Normalize only this bounded
             # prefix; digits and independently verified identities stay exact.
             code = ('PB' if match[1] == 'PB' else 'PUB') + match[2]
+            try:
+                publisher_number(code)
+            except ValueError:
+                continue
             result.append(Line(code, word.x, word.y, word.width, word.height))
         elif text in {'PUB', 'PIJB', 'PLIB', 'PLJB', 'PB'}:
             # Some fonts split prefix and digits into adjacent OCR words.
@@ -43,9 +48,49 @@ def publisher_codes(words):
             if len(neighbors) == 1:
                 other = neighbors[0]
                 prefix = 'PB' if text == 'PB' else 'PUB'
+                if prefix == 'PB' and not other.text.startswith('1'):
+                    continue
                 result.append(Line(prefix+other.text, word.x, word.y,
                                    other.x+other.width-word.x, word.height))
     return sorted(result, key=lambda line: (line.y, line.x))
+
+
+def recover_code_cells(ocr, grid, licenses, readings):
+    """Read missing cells using the column established by exact visible codes."""
+    import math
+    from collections import Counter
+    from PIL import ImageOps
+    if not readings or max(code.x for code in readings)-min(code.x for code in readings) > 12:
+        return []  # No uniquely established code column; never guess a column.
+    left = max(0, math.floor(min(code.x for code in readings))-4)
+    right = min(grid.width, math.ceil(max(code.x+code.width for code in readings))+8)
+    centers = sorted(line.y+line.height/2 for line in licenses)
+    if any(b-a < 10 for a,b in zip(centers,centers[1:])):
+        return []
+    recovered = []
+    for line in licenses:
+        center = line.y+line.height/2
+        if any(abs(center-(code.y+code.height/2)) <= 5 for code in readings):
+            continue  # Existing conflicts must still stop alignment.
+        index = centers.index(center)
+        top = max(0, math.floor(center-9), math.floor((centers[index-1]+center)/2) if index else 0)
+        bottom = min(grid.height, math.ceil(center+9), math.ceil((centers[index+1]+center)/2) if index+1 < len(centers) else grid.height)
+        cell = unhighlight_grid(grid.crop((left,top,right,bottom)))
+        values = []
+        for mode in ('RGB','L'):
+            padded = ImageOps.expand(cell.convert(mode),border=15,fill='white' if mode == 'RGB' else 255).convert('RGB')
+            for scale in (2,3):
+                codes = publisher_codes(ocr.words(padded,scale=scale))
+                # Require the complete code to sit inside the cell, not against
+                # a cropped edge. Neighboring rows are excluded before OCR.
+                valid = [code.text for code in codes if code.x >= 16
+                         and code.x+code.width <= 15+cell.width-2]
+                if len(valid) == 1:
+                    values.extend(valid)
+        counts = Counter(values)
+        if len(counts) == 1 and next(iter(counts.values())) >= 2:
+            recovered.append(Line(values[0],left,line.y,right-left,line.height))
+    return recovered
 
 
 def align_code_candidates(licenses, readings):
