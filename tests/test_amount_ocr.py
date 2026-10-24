@@ -72,6 +72,7 @@ def test_conflicting_initial_reads_need_unanimous_supported_confirmation(confirm
     image = Image.new('RGB', (100, 21))
     monkeypatch.setattr(amount_ocr, 'amount_images', lambda _: [(image, 4)]*6)
     monkeypatch.setattr(amount_ocr, 'amount_retry_images', lambda _: [(image, 2)]*5)
+    monkeypatch.setattr(amount_ocr, 'amount_full_field_images', lambda _: [])
     responses = iter(['-0.02', '43.02', '-0.02', '0.02', '-0.02', '-0.02'] + confirmation)
     ocr = SimpleNamespace(lines=lambda *a, **kw: [Line(next(responses), 0, 0, 20, 10)])
     if expected is None:
@@ -161,3 +162,21 @@ def test_full_cell_padding_recovers_amount_when_tight_crops_are_blank(full_cell_
     else:
         assert amount_ocr.read_table_amount(ocr, image) == expected
     assert sizes[-6:] == [(88,44)]*3 + [(88,42)]*3
+
+@pytest.mark.parametrize('confirmation,expected',[
+    (['-0.28']*8,Decimal('-0.28')),
+    (['-0.28']*7+['-0.26'],None),
+    (['-0.28']*7+['0.28'],None),
+    (['-0.28']*3+['']*5,None),
+    (['0.28']*8,None),
+])
+def test_reported_outliers_require_separate_full_field_confirmation(confirmation,expected,monkeypatch):
+    image=Image.new('RGB',(115,21),'white')
+    monkeypatch.setattr(amount_ocr,'amount_images',lambda _: [(image,4)]*6)
+    monkeypatch.setattr(amount_ocr,'amount_retry_images',lambda _: [(image,2)]*5)
+    monkeypatch.setattr(amount_ocr,'amount_full_field_images',lambda _: [(image,3)]*8)
+    replies=iter(['','','-0.26','-13.28','','-0.28']+['-0.28']*5+confirmation)
+    ocr=SimpleNamespace(lines=lambda *a,**kw:[Line(next(replies),0,0,35,10)])
+    if expected is None:
+        with pytest.raises(ValueError):amount_ocr.read_amount(ocr,image)
+    else:assert amount_ocr.read_amount(ocr,image)==expected

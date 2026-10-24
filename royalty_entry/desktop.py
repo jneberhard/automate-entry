@@ -251,7 +251,20 @@ class RemoteDriver:
             return read_reference(self.ocr, self.crop(image, key))
         if key in {'details_balance', 'financials_balance', 'entry_amount'}:
             from .amount_ocr import read_amount
-            return format(read_amount(self.ocr, self.crop(image, key)), 'f')
+            field = self.crop(image, key)
+            try:
+                return format(read_amount(self.ocr, field), 'f')
+            except ValueError as exc:
+                if getattr(self, 'log', None):
+                    from .paths import data_root
+                    diagnostic = data_root() / 'diagnostics' / f'{key}.png'
+                    try:
+                        diagnostic.parent.mkdir(parents=True, exist_ok=True)
+                        field.save(diagnostic)
+                        self.log(f'Unreadable amount diagnostic saved: {diagnostic}')
+                    except OSError:
+                        pass
+                raise ValueError(f'{key}: {exc}') from exc
         return self.ocr.text(self.crop(image, key)).strip()
 
     def state(self, image):

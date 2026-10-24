@@ -36,6 +36,18 @@ def amount_retry_images(image):
                       Image.Resampling.NEAREST), 1) for scale in (3, 4)]
 
 
+def amount_full_field_images(image):
+    """Confirm using intact edit pixels rather than the tight ink crop."""
+    variants = []
+    for trim in (0, 1):
+        cell = image.crop((0,trim,image.width,image.height-trim))
+        for mode in ('RGB','L'):
+            field = ImageOps.expand(cell.convert(mode), border=15,
+                                    fill='white' if mode == 'RGB' else 255).convert('RGB')
+            variants.extend((field,scale) for scale in (2,3))
+    return variants
+
+
 def read_amount(ocr, image):
     from .rules import money
     readings, valid = [], []
@@ -62,6 +74,15 @@ def read_amount(ocr, image):
         recognize(amount_retry_images(image))
         if len(valid) >= 3 and len(set(valid)) == 1 and original.count(valid[0]) >= 2:
             return valid[0]
+        if len(valid) >= 3 and len(set(valid)) == 1 and original.count(valid[0]) == 1:
+            candidate = valid[0]
+            valid.clear()
+            recognize(amount_full_field_images(image))
+            # A lone original value is insufficient on its own. Require an
+            # additional unanimous batch from different crop boundaries, with
+            # at least four exact readings agreeing with the retry batch.
+            if len(valid) >= 4 and set(valid) == {candidate}:
+                return candidate
         raise ValueError(f'Monetary readings disagree: {readings!r}')
     if len(valid) < 2:
         recognize(amount_retry_images(image))
