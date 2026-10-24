@@ -112,3 +112,12 @@ def test_only_pub_or_pb1_prefixes_and_exact_digits_are_accepted(code,expected):
     if expected:assert publisher_number(code)==code
     else:
         with pytest.raises(ValueError):publisher_number(code)
+
+
+def test_missing_codes_can_be_explicitly_unverified_but_conflicts_still_stop():
+    licenses=[Line('123',0,4,60,10),Line('123',0,21,60,10)]
+    readings=[Line('PUB485',708,4,37,10)]
+    rows=align_code_candidates(licenses,readings,allow_missing=True)
+    assert [code.text for _,code in rows]==['PUB485','']
+    with pytest.raises(ValueError):
+        align_code_candidates(licenses,readings+[Line('PUB486',708,4,37,10)],allow_missing=True)

@@ -274,3 +274,29 @@ def test_single_search_result_requires_properties_identity_before_success(mismat
         with pytest.raises(PublisherMismatch): d.open_record(record)
     else:assert d.open_record(record)
     assert events==['open','verify']
+
+@pytest.mark.parametrize('first_code',['','PUB691'])
+def test_unknown_grid_candidate_requires_properties_and_mismatch_cancels(first_code):
+    from royalty_entry.desktop import RemoteDriver,PublisherMismatch
+    from royalty_entry.rules import Record
+    d=RemoteDriver.__new__(RemoteDriver);d.profile=DEFAULT
+    d.expect=lambda _:None
+    d.text=lambda image,key:'123' if key=='search_value' else '2 Licenses (Number: 123)'
+    rows=[(Line('123',0,4,60,10),Line(first_code,708,4,37,10)),
+          (Line('123',0,21,60,10),Line('PUB691',708,21,37,10))]
+    d.pages=lambda *a:[(None,rows)]
+    d.ready=lambda _:None
+    calls=[]
+    d.click=lambda *a,**k:calls.append('open')
+    def verify(*a):
+        calls.append('verify')
+        if calls.count('verify')==1:raise PublisherMismatch('Properties reads PUB485')
+    d.verify_open_identity=verify
+    d.keys=lambda *a:calls.append(('cancel',a))
+    record=Record(2,'123','Publisher display name','PUB691')
+    if first_code:
+        with pytest.raises(PublisherMismatch):d.open_record(record)
+        assert calls==['open','verify']
+    else:
+        assert d.open_record(record)
+        assert calls==['open','verify',('cancel',('general','esc')),'open','verify']

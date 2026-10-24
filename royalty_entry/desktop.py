@@ -426,9 +426,22 @@ class RemoteDriver:
             except ValueError:
                 pass
             from .grid_codes import recover_code_cells
+            if getattr(self, 'log', None):
+                from .paths import data_root
+                diagnostic = data_root() / 'diagnostics' / 'publisher-grid.png'
+                try:
+                    diagnostic.parent.mkdir(parents=True, exist_ok=True)
+                    grid.save(diagnostic)
+                    self.log(f'Publisher-grid diagnostic saved: {diagnostic}')
+                except OSError:
+                    pass  # Diagnostics must never change the decision to stop.
             readings.extend(recover_code_cells(self.ocr, grid, left, readings))
             try:
-                return align_code_candidates(left, readings)
+                rows = align_code_candidates(left, readings, allow_missing=True)
+                missing = sum(not code.text for _,code in rows)
+                if missing and getattr(self, 'log', None):
+                    self.log(f'{missing} grid publisher code(s) unreadable. These rows require independent Properties verification before matching.')
+                return rows
             except ValueError as exc:
                 raise ScreenError(f'Could not read an exact publisher code on every visible license row: {len(left)} licenses / {counts} whole-grid readings; {exc}. No publisher name was used for matching.') from exc
         right = self.ocr.lines(self.crop(image, right_key))
@@ -544,14 +557,23 @@ class RemoteDriver:
             # This only selects a candidate: Properties must independently
             # confirm the complete license number before any financial step.
             matches = [(a, b) for a, b in rows if record.license in a.text
-                       and publisher_matches(b)]
+                       and (not b.text or publisher_matches(b))]
             for line, publisher_line in sorted(matches, key=lambda pair: pair[0].y):
                 # Use the first visible exact match, including when OCR returns
                 # rows out of order. Later pages and duplicate rows are skipped.
                 box = self.profile['regions']['result_licenses']
                 self.click((box[0]+50, round(box[1]+line.y+line.height/2)), 'manager', clicks=2)
                 image = self.ready('general')
-                self.verify_open_identity(record, image)
+                try:
+                    self.verify_open_identity(record, image)
+                except PublisherMismatch:
+                    if publisher_line.text:
+                        raise  # A readable grid/Properties disagreement stops.
+                    # This was only an unknown candidate. Cancel Properties
+                    # and continue, preserving first-match order on the page.
+                    self.keys('general', 'esc')
+                    self.ready('manager')
+                    continue
                 return True
         return False
 

@@ -93,7 +93,7 @@ def recover_code_cells(ocr, grid, licenses, readings):
     return recovered
 
 
-def align_code_candidates(licenses, readings):
+def align_code_candidates(licenses, readings, allow_missing=False):
     """Combine exact OCR candidates by row, never by list index or fuzzy digits.
 
     A grid candidate still requires independent Properties verification before
@@ -105,6 +105,11 @@ def align_code_candidates(licenses, readings):
     rows = []
     for line, center in zip(licenses, centers):
         candidates = [code for code in readings if abs(center-(code.y+code.height/2)) <= 5]
+        if not candidates and allow_missing:
+            # Empty text means unverified, never a matching publisher code.
+            # The caller must open Properties and verify it independently.
+            rows.append((line, Line('',0,line.y,0,line.height)))
+            continue
         if len({code.text for code in candidates}) != 1:
             raise ValueError('Missing or conflicting publisher codes on a license row')
         rows.append((line, candidates[0]))
