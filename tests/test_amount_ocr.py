@@ -29,6 +29,7 @@ def test_agreed_exact_amounts(answers, expected, monkeypatch):
 def test_blank_missing_decimal_or_disagreeing_digits_never_become_an_amount(answers, monkeypatch):
     image = Image.new('RGB', (100, 21))
     monkeypatch.setattr(amount_ocr, 'amount_retry_images', lambda _: [])
+    monkeypatch.setattr(amount_ocr, 'amount_full_field_images', lambda _: [])
     monkeypatch.setattr(amount_ocr, 'amount_images', lambda _: [(image, 4)]*6)
     stream = iter(answers)
     ocr = SimpleNamespace(lines=lambda *args, **kwargs: [Line(next(stream), 0, 0, 20, 10)])

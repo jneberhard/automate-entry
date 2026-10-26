@@ -75,14 +75,16 @@ def read_amount(ocr, image):
         recognize(amount_retry_images(image))
         if len(valid) >= 3 and len(set(valid)) == 1 and original.count(valid[0]) >= 2:
             return valid[0]
-        if len(valid) >= 3 and len(set(valid)) == 1 and original.count(valid[0]) == 1:
+        confirmation = list(valid)
+        valid.clear()
+        recognize(amount_full_field_images(image))
+        # Intact pixels may preserve a minus that thresholded/tightly cropped
+        # renderings lose. Require four unanimous intact-field readings AND
+        # support in both earlier batches; never take a majority of the signs.
+        if len(valid) >= 4 and len(set(valid)) == 1:
             candidate = valid[0]
-            valid.clear()
-            recognize(amount_full_field_images(image))
-            # A lone original value is insufficient on its own. Require an
-            # additional unanimous batch from different crop boundaries, with
-            # at least four exact readings agreeing with the retry batch.
-            if len(valid) >= 4 and set(valid) == {candidate}:
+            if ((original.count(candidate) >= 2 and confirmation.count(candidate) >= 2)
+                    or (original.count(candidate) >= 1 and confirmation.count(candidate) >= 3)):
                 return candidate
         raise ValueError(f'Monetary readings disagree: {readings!r}')
     if len(valid) < 2:

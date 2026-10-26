@@ -102,7 +102,7 @@ def test_no_screen_capture_overwrites_text_between_copy_and_paste(monkeypatch):
     arriving = iter(['', 'Royalty Entry awaiting field text', '1234567890'])
     monkeypatch.setattr(pyperclip, 'paste', lambda: next(arriving))
     monkeypatch.setattr(desktop, 'foreground', lambda: (12, 'Remote Desktop', (0, 0, 1008, 711)))
-    driver.paste('search_input', '1234567890', 'manager', 'search_value')
+    driver.paste('entry_reference', '1234567890', 'entry', 'entry_reference')
     index = events.index('copy text')
     assert events[index+1] == ('ctrl', 'v')
     assert events.count(('shift', 'end')) == 2

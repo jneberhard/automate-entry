@@ -246,6 +246,9 @@ class RemoteDriver:
         return image.crop(box)
 
     def text(self, image, key):
+        if key == 'search_value':
+            from .search_ocr import read_search_number
+            return read_search_number(self.ocr, self.crop(image, key))
         if key == 'entry_reference':
             from .text_ocr import read_reference
             return read_reference(self.ocr, self.crop(image, key))
@@ -328,6 +331,26 @@ class RemoteDriver:
         self.wait()
 
     def paste(self, point, value, stage, region):
+        if region == 'search_value':
+            if not re.fullmatch(r'\d+',value):
+                raise ScreenError('Search requires an exact numeric license number')
+            self.click(point,stage)
+            self.expect(stage)
+            self.hotkey('home')
+            self.hotkey('shift','end')
+            self.check_stop()
+            if foreground()[0] != self.handle:
+                raise ScreenError('Remote Desktop lost focus before entering the license')
+            self.pg.write(value,interval=.08)
+            self.wait()
+            self.hotkey('tab')
+            self.wait()
+            first=self.text(self.expect(stage),region)
+            self.wait(.35)
+            second=self.text(self.expect(stage),region)
+            if first != value or second != value:
+                raise ScreenError(f'Entered license could not be verified: expected {value!r}, read {first!r} / {second!r}. Search was not submitted.')
+            return
         if region == 'entry_amount':
             # This legacy numeric edit does not reliably implement Ctrl+C.
             # Enter ASCII amount keys directly and verify the displayed cents
@@ -532,7 +555,10 @@ class RemoteDriver:
             return False
         self.record = record
         image = self.expect('manager')
-        query = self.text(image, 'search_value').strip()
+        try:
+            query = self.text(image, 'search_value').strip()
+        except ValueError:
+            query = ''  # A blank/unreadable old query must be replaced.
         current_count = self.text(image, 'search_count')
         reusable = (query == record.license
                     and re.search(r'\b\d+\s+Licenses?\b', current_count, re.I)
@@ -557,7 +583,7 @@ class RemoteDriver:
             # its tiny grid code. Properties still independently confirms BOTH
             # complete identities before any financial step is allowed.
             lines = self.ocr.lines(self.crop(image, 'result_licenses'))
-            if len(lines) == 1 and record.license in lines[0].text:
+            if len(lines) == 1:
                 box = self.profile['regions']['result_licenses']
                 self.click((box[0]+50, round(box[1]+lines[0].y+lines[0].height/2)), 'manager', clicks=2)
                 self.verify_open_identity(record, self.ready('general'))
@@ -569,8 +595,9 @@ class RemoteDriver:
             # The row icon can merge into the number's OCR on a selected row.
             # This only selects a candidate: Properties must independently
             # confirm the complete license number before any financial step.
-            matches = [(a, b) for a, b in rows if record.license in a.text
-                       and (not b.text or publisher_matches(b))]
+            # Grid license glyphs are only candidate coordinates. Exact license
+            # identity is independently required in Properties before use.
+            matches = [(a, b) for a, b in rows if not b.text or publisher_matches(b)]
             for line, publisher_line in sorted(matches, key=lambda pair: pair[0].y):
                 # Use the first visible exact match, including when OCR returns
                 # rows out of order. Later pages and duplicate rows are skipped.
