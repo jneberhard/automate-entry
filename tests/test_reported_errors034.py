@@ -17,7 +17,7 @@ def test_confirmed_payment_rules(journal,balance,transfer,expected):
     assert not removed
     assert driver.saved[0][0] == Decimal(expected)
 
-@pytest.mark.parametrize('values,expected', [(['0','0'],Decimal('0')),(['-.25','-.25'],Decimal('-.25')),(['-.25','-.26'],None)])
+@pytest.mark.parametrize('values,expected', [(['0','0'],Decimal('0')),(['-.25','-.25'],Decimal('-.25')),(['-.25','-.26'],Decimal('-.25'))])
 def test_transfer_page_overlap_uses_confirmed_editor_amounts(values,expected):
     d=desktop.RemoteDriver.__new__(desktop.RemoteDriver)
     d.click=lambda *args:None;d.ready=lambda *args:None

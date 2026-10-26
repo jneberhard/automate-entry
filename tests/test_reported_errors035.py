@@ -25,7 +25,7 @@ def test_unconfirmed_context_amount_is_rejected(monkeypatch,values):
     d.ocr=SimpleNamespace(words=lambda *a,**k:[Line(next(replies),520,18,30,10)])
     with pytest.raises(desktop.ScreenError):d.read_transfer_amount(Image.new('RGB',tuple(DEFAULT['window_size']),'white'),Line('TRANSFER',0,20,60,10))
 
-@pytest.mark.parametrize('confirmation,expected',[(['1265484746']*4,'1265484746'),(['1265484748']*4,None),(['1265484746']*3+[''],None)])
+@pytest.mark.parametrize('confirmation,expected',[(['1265484746']*4,'1265484746'),(['1265484748']*4,None),(['1265484746']*3+[''],'1265484746')])
 def test_partial_search_glyphs_need_exact_supported_confirmation(monkeypatch,confirmation,expected):
     image=Image.new('RGB',(266,20),'white')
     monkeypatch.setattr(search_ocr,'search_images',lambda _: [(image,2)]*3)

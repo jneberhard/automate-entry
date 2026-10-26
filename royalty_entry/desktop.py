@@ -687,9 +687,13 @@ class RemoteDriver:
                     if key not in seen:
                         found.append(value)
                         seen.add(key)
-        if len(found) > 1:
-            raise ScreenError('More than one Transfer amount found')
-        return found[0] if found else None
+            # The workflow guarantees one Transfer. Stop after finding it;
+            # scrolling it into view again must not create a second amount.
+            if len(found) > 1:
+                raise ScreenError('More than one Transfer amount found on the same page')
+            if found:
+                return found[0]
+        return None
 
     def read_transfer_amount(self, image, line):
         """Read the existing table row without opening or editing transactions."""
@@ -699,14 +703,14 @@ class RemoteDriver:
         amounts = self.profile['regions']['financials_amounts']
         center = types[1]+line.y+line.height/2
         top, bottom = max(types[1],round(center-7)), min(types[3],round(center+8))
-        cell = image.crop((amounts[0],top,amounts[2]-2,bottom))
+        cell = image.crop((amounts[0],top,amounts[2],bottom))
         try:
             return read_table_amount(self.ocr,cell)
         except ValueError as exc:
             # Preserve the full row as OCR context, but accept only a word
             # geometrically inside Amount. Description/date digits cannot leak in.
             from PIL import ImageOps
-            row = image.crop((types[0],top,amounts[2]-2,bottom))
+            row = image.crop((types[0],top,amounts[2],bottom))
             import numpy as np
             if np.median(np.asarray(row.convert('L'))) < 128:
                 row = ImageOps.autocontrast(ImageOps.invert(row.convert('RGB')))

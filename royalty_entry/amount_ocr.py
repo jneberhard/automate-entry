@@ -128,6 +128,28 @@ def read_table_amount(ocr, image):
             cells.append(gray.crop((0, 1, gray.width, gray.height-1)))
         recognize([(ImageOps.expand(cell, border=15, fill=255).convert('RGB'), scale)
                    for cell in cells for scale in (3, 4, 6)])
+    if not valid and gray.getextrema()[0] < 210:
+        # Windows OCR often suppresses a lone '0'. Add a nonnumeric label
+        # next to the unchanged glyph pixels, never manufacture an amount.
+        from PIL import ImageDraw, ImageFont
+        variants = amount_images(gray)
+        if variants:
+            field = variants[0][0]
+            field = field.crop((12,12,field.width-12,field.height-12))
+            canvas = Image.new('RGB',(field.width+80,field.height+30),'white')
+            canvas.paste(field,(65,15))
+            ImageDraw.Draw(canvas).text((15,14),'Amount',
+                font=ImageFont.truetype('C:/Windows/Fonts/arial.ttf',12),fill='black')
+            labeled = []
+            for scale in (2,3,4):
+                text = ' '.join(line.text for line in ocr.lines(canvas,scale=scale)).strip()
+                readings.append(text)
+                match = re.fullmatch(r'Amount\s+(-?[\d.,]+)',text)
+                if match:
+                    try: labeled.append(money(match[1]))
+                    except ValueError: pass
+            if len(labeled)==3 and len(set(labeled))==1:
+                return labeled[0]
     if len(valid) < 2 or len(set(valid)) != 1:
         raise ValueError(f'Table amount readings do not agree: {readings!r}')
     return valid[0]
