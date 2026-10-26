@@ -236,7 +236,14 @@ class App(tk.Tk):
             else:
                 progress = lambda completed, total, detail: self.messages.put(('progress', (completed, total, detail)))
                 folder = run(*settings[:4], settings[4], ROOT/'runs', driver_factory, self.stop, log, progress=progress)
-                result = (f'Live run complete. Results tab saved in {settings[0]}. Report: {folder}' if settings[4] else f'Preview complete. Report: {folder}')
+                import csv
+                with (folder/'errors.csv').open(encoding='utf-8-sig', newline='') as errors_file:
+                    error_rows = list(csv.DictReader(errors_file))
+                error_count = len(error_rows)
+                result = (f'Live run complete. Results tab saved in {settings[0]}.' if settings[4] else 'Preview complete.')
+                result += f' {error_count} row(s) need review; marked blue in '+('the results tab and recovery workbook.' if settings[4] else 'the recovery workbook.')+f' Errors: {folder / "errors.csv"}'
+                if error_rows:
+                    self.messages.put(('run_errors', (str(folder/'errors.csv'), error_rows)))
             self.messages.put(('done', result))
         except Exception as exc:
             self.messages.put(('error', str(exc) or type(exc).__name__))
@@ -245,6 +252,20 @@ class App(tk.Tk):
         try:
             while True:
                 kind, message = self.messages.get_nowait()
+                if kind == 'run_errors':
+                    path, errors = message
+                    dialog = tk.Toplevel(self)
+                    dialog.transient(self)
+                    dialog.title(f'Run complete — {len(errors)} rows need review')
+                    dialog.geometry('850x500')
+                    ttk.Label(dialog, text='These rows were retained and highlighted blue.\nError report: '+path,
+                              wraplength=800, padding=12).pack(anchor='w')
+                    text = ScrolledText(dialog, wrap='word', font=('Consolas', 10))
+                    text.pack(fill='both', expand=True, padx=12, pady=(0,12))
+                    for error in errors:
+                        text.insert('end', f"Excel row {error['Original Excel row']}: {error['License']} / {error['Publisher code']}\n{error['Error']}\n\n")
+                    text.configure(state='disabled')
+                    continue
                 if kind == 'progress':
                     completed, total, detail = message
                     self.progress_total = total

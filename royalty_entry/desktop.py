@@ -717,3 +717,22 @@ class RemoteDriver:
             self.ready('details')
         self.click('properties_ok', 'details')
         self.ready('manager')
+
+    def recover_after_error(self):
+        """Cancel recognized dialogs, never OK, and prove search is ready."""
+        for _ in range(7):
+            self.check_stop()
+            image = self.snapshot()
+            stage = self.state(image)
+            if stage == 'manager':
+                self.wait(.35)
+                self.expect('manager')
+                self.record = None
+                return
+            if stage not in {'chooser', 'entry', 'financials', 'general', 'details'}:
+                raise ScreenError('Cannot identify the open dialog for safe cancellation')
+            if foreground()[0] != self.handle:
+                raise ScreenError('Remote Desktop lost focus during error recovery')
+            self.hotkey('escape')
+            self.wait(.35)
+        raise ScreenError('Could not close the recognized dialogs and return to License Manager')

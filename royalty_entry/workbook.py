@@ -5,6 +5,16 @@ import sys
 from .rules import Record, license_text, publisher_number
 
 
+ERROR_BLUE = 157 + 195*256 + 230*65536  # Excel RGB #9DC3E6, readable with black text.
+
+
+def highlight_errors(sheet, error_rows, last_column):
+    for row in sorted(error_rows or ()):
+        band = sheet.Range(sheet.Cells(row, 1), sheet.Cells(row, last_column))
+        band.Interior.Color = ERROR_BLUE
+        band.Font.Color = 0
+
+
 class Workbook:
     def __init__(self, path: Path, sheet: str, first_row: int):
         from openpyxl import load_workbook
@@ -37,14 +47,16 @@ class Workbook:
             except ValueError as exc:
                 self.invalid.append((row, str(exc)))
 
-    def save_filtered(self, destination: Path, remove_rows: set[int], use_excel=False):
+    def save_filtered(self, destination: Path, remove_rows: set[int], use_excel=False, error_rows=None):
+        if remove_rows & set(error_rows or ()):
+            raise ValueError('Error rows must be retained for review')
         if destination.resolve() == self.path:
             raise ValueError('The original workbook cannot be overwritten')
         temp = destination.with_name(destination.stem + '.tmp' + destination.suffix)
         # Excel itself adjusts formulas, tables, names and formatting after row deletion.
         # Only a copied file is ever opened for editing.
         shutil.copy2(self.path, temp)
-        if remove_rows or use_excel:
+        if remove_rows or use_excel or error_rows:
             sys.coinit_flags = 0
             import pythoncom
             import win32com.client
@@ -58,6 +70,7 @@ class Workbook:
                 excel.AutomationSecurity = 3  # Never run workbook macros.
                 book = excel.Workbooks.Open(str(temp.resolve()), UpdateLinks=0, ReadOnly=False)
                 sheet = book.Worksheets(self.sheet_name)
+                highlight_errors(sheet, error_rows, self.sheet.max_column)
                 for row in sorted(remove_rows, reverse=True):
                     sheet.Rows(row).Delete()
                 book.Save()
@@ -73,12 +86,14 @@ class Workbook:
                         pythoncom.CoUninitialize()
         os.replace(temp, destination)
 
-    def save_results_tab(self, remove_rows, name=None):
+    def save_results_tab(self, remove_rows, name=None, error_rows=None):
         """Copy the source tab within Excel and save only after filtering succeeds.
 
         With no name, check write access before any payments; do not save.
         The workbook must be closed in other Excel instances.
         """
+        if remove_rows & set(error_rows or ()):
+            raise ValueError('Error rows must be retained for review')
         sys.coinit_flags = 0
         import pythoncom
         import win32com.client
@@ -115,6 +130,7 @@ class Workbook:
                 raise RuntimeError('Excel did not create the results tab in the selected workbook; no changes saved.')
             result = book.Worksheets(book.Worksheets.Count)
             result.Name = candidate
+            highlight_errors(result, error_rows, self.sheet.max_column)
             for row in sorted(remove_rows, reverse=True):
                 result.Rows(row).Delete()
             book.Save()

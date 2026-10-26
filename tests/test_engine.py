@@ -105,9 +105,9 @@ def test_interrupted_commit_blocks_automatic_retry(journal):
         run(journal, Driver(fail_save=True))
     assert journal.get(Record(2, '123', 'Publisher', 'PUB1'), 'HFA Payment 2026 Q3')[0] == 'pending'
     driver = Driver()
-    with pytest.raises(RuntimeError, match='unfinished save'):
-        run(journal, driver)
+    _, rows = run(journal, driver)
     assert not driver.opened and not driver.saved
+    assert rows[0][1] == 'error' and 'Unfinished save' in rows[0][3]
 
 
 def test_reference_normalization_prevents_case_only_replays(journal):

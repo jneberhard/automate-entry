@@ -24,7 +24,7 @@ def test_live_run_preserves_partial_removals_and_source_after_failure(tmp_path, 
     exports = []
     progress = []
 
-    def export(self, destination, remove_rows, use_excel=False):
+    def export(self, destination, remove_rows, use_excel=False, error_rows=None):
         exports.append((set(remove_rows), use_excel))
         shutil.copy2(self.path, destination)
 
@@ -47,11 +47,11 @@ def test_live_run_preserves_partial_removals_and_source_after_failure(tmp_path, 
             progress=lambda *event: progress.append(event))
     assert exports == [(set(), True), ({2, 3}, False)]
     assert source.read_bytes() == original
-    assert [(event[0], event[1]) for event in progress] == [(0, 3), (1, 3), (2, 3)]
+    assert [(event[0], event[1]) for event in progress] == [(0, 3), (1, 3), (2, 3), (3, 3)]
     report = next((tmp_path/'runs').glob('*/report.csv'))
     with report.open(encoding='utf-8-sig', newline='') as file:
         statuses = [row[3] for row in list(csv.reader(file))[1:]]
-    assert statuses == ['remove_balance', 'duplicate', 'STOPPED']
+    assert statuses == ['remove_balance', 'duplicate', 'error', 'STOPPED']
     journal = Journal(tmp_path/'runs'/'journal.sqlite3')
     assert journal.get(Record(2, '123', 'Publisher', 'PUB1'), 'Q3')[0] == 'remove_balance'
     journal.close()
@@ -68,6 +68,8 @@ def test_run_lock_excludes_second_runner_and_releases(tmp_path):
 
 
 def test_progress_includes_invalid_rows_duplicates_and_finalization(tmp_path, monkeypatch):
+    monkeypatch.setattr('royalty_entry.workbook.Workbook.save_filtered',
+                        lambda self, dest, rows, **kw: shutil.copy2(self.path, dest))
     source = tmp_path/'source.xlsx'
     book = Workbook()
     sheet = book.active
@@ -126,7 +128,7 @@ def test_saved_copy_keeps_shared_license_rows_and_report_explains_retention(tmp_
 @pytest.fixture(autouse=True)
 def isolate_results_tab_excel(monkeypatch):
     monkeypatch.setattr('royalty_entry.workbook.Workbook.save_results_tab',
-                        lambda self, rows, name=None: name)
+                        lambda self, rows, name=None, **kw: name)
 
 
 def test_live_run_writes_filtered_tab_and_preflights_before_driver(tmp_path, monkeypatch):

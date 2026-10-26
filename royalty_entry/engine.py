@@ -33,9 +33,48 @@ class RunLock:
         self.file.close()
 
 
+def _process_record(record, driver, reference, journal, live):
+    if not driver.open_record(record):
+        return 'review', '', f'No exact license/publisher match ({record.publisher_number or record.publisher}); row retained'
+    balance = driver.details()
+    if balance < -CENT:
+        status = 'remove_balance'
+        detail = f'Provisional Balance {balance} is below -0.01'
+        driver.close_record()
+        if live:
+            journal.put(record, reference, status, detail=detail)
+        return status, '', detail
+    transfer = driver.transfers()
+    if transfer is None:
+        status = 'remove_no_transfer'
+        driver.close_record(financials=True)
+        if live:
+            journal.put(record, reference, status, detail='No Transfer after scanning the transaction table')
+        return status, '', 'No Transfer after scanning the transaction table'
+    amount = royalty_amount(transfer)
+    if live:
+        driver.prepare_payment(amount, reference)
+        # The intent is durable before the first of the three save/OK clicks.
+        journal.put(record, reference, 'pending', amount, 'Save about to begin; inspect manually if interrupted')
+        try:
+            driver.commit_payment(amount, reference, balance)
+        except PaymentNotSaved as exc:
+            # This explicit exception is raised only before the first OK.
+            # Unknown failures after a save attempt must remain pending.
+            journal.put(record, reference, 'not_saved', amount, str(exc))
+            raise
+        journal.put(record, reference, 'paid', amount, 'All three OK steps and balances verified')
+        status = 'paid'
+    else:
+        driver.close_record(financials=True)
+        status = 'would_pay'
+    return status, amount, f'Transfer {transfer}; initial Provisional Balance {balance}'
+
+
 def process_records(records, driver, reference, journal, live, report, stop):
-    """Decision engine, independent of Excel and screen input for testing."""
-    removed, outcomes = set(), {}
+    """Isolate record failures, retaining uncertain saves for manual review."""
+    import sqlite3
+    removed, outcomes, details = set(), {}, {}
     for record in records:
         if stop.is_set():
             raise Cancelled('Stopped between rows')
@@ -43,69 +82,47 @@ def process_records(records, driver, reference, journal, live, report, stop):
             status = outcomes[record.key]
             if status.startswith('remove_'):
                 removed.add(record.row)
-            report(record, 'duplicate', '', f'Skipped repeated license/publisher; first outcome: {status}')
+            detail = f'Skipped repeated license/publisher; first outcome: {status}'
+            if status in {'error', 'review'}:
+                detail += '; ' + details[record.key]
+            report(record, 'duplicate', '', detail)
             continue
         previous = journal.get(record, reference)
         if previous and previous[0] == 'legacy_review':
-            outcomes[record.key] = 'review'
-            report(record, 'review', '', previous[2])
-            continue
-        if previous and previous[0] == 'pending':
-            raise RuntimeError(f'{record.license} / {record.publisher} has an unfinished save in the journal. Inspect it in License Manager before retrying. No automatic retry is allowed.')
-        if previous and previous[0] == 'paid':
-            outcomes[record.key] = 'already_paid'
-            report(record, 'already_paid', previous[1], 'Previously completed by this program with this reference')
-            continue
-        if previous and previous[0].startswith('remove_'):
-            status = previous[0]
-            removed.add(record.row)
-            outcomes[record.key] = status
-            report(record, status, '', previous[2])
-            continue
-        if not driver.open_record(record):
-            outcomes[record.key] = 'review'
-            report(record, 'review', '', f'No exact license/publisher match ({record.publisher_number or record.publisher}); row retained')
-            continue
-        balance = driver.details()
-        if balance < -CENT:
-            status = 'remove_balance'
-            detail = f'Provisional Balance {balance} is below -0.01'
-            driver.close_record()
-            removed.add(record.row)
-            outcomes[record.key] = status
-            if live:
-                journal.put(record, reference, status, detail=detail)
-            report(record, status, '', detail)
-            continue
-        transfer = driver.transfers()
-        if transfer is None:
-            status = 'remove_no_transfer'
-            driver.close_record(financials=True)
-            removed.add(record.row)
-            outcomes[record.key] = status
-            if live:
-                journal.put(record, reference, status, detail='No Transfer after scanning the transaction table')
-            report(record, status, '', 'No Transfer after scanning the transaction table')
-            continue
-        amount = royalty_amount(transfer)
-        if live:
-            driver.prepare_payment(amount, reference)
-            # The intent is durable before the first of the three save/OK clicks.
-            journal.put(record, reference, 'pending', amount, 'Save about to begin; inspect manually if interrupted')
-            try:
-                driver.commit_payment(amount, reference, balance)
-            except PaymentNotSaved as exc:
-                # This explicit exception is raised only before the first OK.
-                # Unknown failures after a save attempt must remain pending.
-                journal.put(record, reference, 'not_saved', amount, str(exc))
-                raise
-            journal.put(record, reference, 'paid', amount, 'All three OK steps and balances verified')
-            status = 'paid'
+            status, amount, detail = 'review', '', previous[2]
+        elif previous and previous[0] == 'pending':
+            status, amount, detail = 'error', previous[1], ('Unfinished save in the journal. Inspect this license/publisher in License Manager before retrying; no automatic retry was attempted.')
+        elif previous and previous[0] == 'paid':
+            status, amount, detail = 'already_paid', previous[1], 'Previously completed by this program with this reference'
+        elif previous and previous[0].startswith('remove_'):
+            status, amount, detail = previous[0], '', previous[2]
         else:
-            driver.close_record(financials=True)
-            status = 'would_pay'
-        outcomes[record.key] = status
-        report(record, status, amount, f'Transfer {transfer}; initial Provisional Balance {balance}')
+            try:
+                status, amount, detail = _process_record(record, driver, reference, journal, live)
+            except (Cancelled, sqlite3.Error):
+                raise
+            except Exception as exc:
+                if type(exc).__name__ == 'FailSafeException':
+                    raise
+                status, amount, detail = 'error', '', f'{type(exc).__name__}: {exc}'
+                outcomes[record.key], details[record.key] = status, detail
+                report(record, status, amount, detail)
+                # Never send blind clicks or OK while recovering. A failed
+                # recovery is a session failure, not permission to keep typing.
+                recover = getattr(driver, 'recover_after_error', None)
+                if recover is None:
+                    raise
+                try:
+                    recover()
+                except Cancelled:
+                    raise
+                except Exception as recovery:
+                    raise RuntimeError(f'{detail}; cannot safely return to License Manager: {recovery}') from recovery
+                continue
+        outcomes[record.key], details[record.key] = status, detail
+        if status.startswith('remove_'):
+            removed.add(record.row)
+        report(record, status, amount, detail)
     paid_licenses = journal.paid_licenses(reference)
     protected_rows = {record.row for record in records if record.license in paid_licenses}
     return removed - protected_rows
@@ -119,7 +136,7 @@ def run(source, sheet, first_row, reference, live, root, driver_factory, stop, l
         if not reference or any(c in reference for c in '\r\n\t'):
             raise ValueError('Enter a nonblank, single-line reference')
         workbook = Workbook(Path(source), sheet, first_row)
-        if not workbook.records:
+        if not workbook.records and not workbook.invalid:
             raise ValueError('No valid license/publisher-code rows were found. Check column G (PUB/PB code), column I (license), sheet and first data row.')
         total = len(workbook.records) + len(workbook.invalid)
         completed = 0
@@ -135,6 +152,7 @@ def run(source, sheet, first_row, reference, live, root, driver_factory, stop, l
         journal = Journal(root / 'journal.sqlite3')
         report_path = folder / 'report.csv'
         removed = set()
+        error_rows, errors = set(), []
         failure = None
         try:
             with report_path.open('w', encoding='utf-8-sig', newline='') as out:
@@ -151,6 +169,10 @@ def run(source, sheet, first_row, reference, live, root, driver_factory, stop, l
                                      str(amount), safe(detail)])
                     out.flush()
                     os.fsync(out.fileno())
+                    if status in {'error', 'review'} or (status == 'duplicate' and
+                            any(f'first outcome: {kind}' in detail for kind in ('error', 'review'))):
+                        error_rows.add(record.row)
+                        errors.append((record.row, record.license, record.publisher_number, record.publisher, detail))
                     if status.startswith('remove_'):
                         removed.add(record.row)
                     if status == 'duplicate' and 'first outcome: remove_' in detail:
@@ -161,11 +183,14 @@ def run(source, sheet, first_row, reference, live, root, driver_factory, stop, l
 
                 for row, reason in workbook.invalid:
                     writer.writerow([row, '', '', 'review', '', reason])
+                    error_rows.add(row)
+                    errors.append((row, '', '', '', reason))
                     completed += 1
                     notify(completed, total, f'Excel row {row} kept for review: {reason}')
-                driver = driver_factory()
                 try:
-                    process_records(workbook.records, driver, reference, journal, live, report, stop)
+                    if workbook.records:
+                        driver = driver_factory()
+                        process_records(workbook.records, driver, reference, journal, live, report, stop)
                 except Exception as exc:
                     failure = exc
                     writer.writerow(['', '', '', 'STOPPED', '', str(exc)])
@@ -174,6 +199,12 @@ def run(source, sheet, first_row, reference, live, root, driver_factory, stop, l
         finally:
             paid_licenses = journal.paid_licenses(reference)
             journal.close()
+        errors_path = folder / 'errors.csv'
+        with errors_path.open('w', encoding='utf-8-sig', newline='') as error_file:
+            error_writer = csv.writer(error_file)
+            error_writer.writerow(['Original Excel row', 'License', 'Publisher code', 'Publisher', 'Error'])
+            for row in errors:
+                error_writer.writerow([("'"+str(value) if str(value).startswith(('=', '+', '@')) else value) for value in row])
         protected_rows = {record.row for record in workbook.records if record.license in paid_licenses}
         retained = removed & protected_rows
         removed -= protected_rows
@@ -192,20 +223,23 @@ def run(source, sheet, first_row, reference, live, root, driver_factory, stop, l
         # Preview always retains the original rows; only the report describes proposed removals.
         if not failure:
             notify(completed, total, 'Finalizing workbook and report—please wait…')
-        if live and removed:
+        if (live and removed) or error_rows:
             try:
-                workbook.save_filtered(destination, removed)
+                workbook.save_filtered(destination, removed if live else set(), **({'error_rows': error_rows} if error_rows else {}))
             except Exception as exc:
                 raise RuntimeError(f'Entries already saved remain in License Manager. Could not create filtered workbook: {exc}. Original unchanged; use {report_path} to recover the removal decisions.') from exc
         log(f'Report: {report_path}')
         log(f'Recovery workbook copy: {destination}')
         if live:
             try:
-                tab = workbook.save_results_tab(removed, 'Royalty '+folder.name[:15])
+                tab = workbook.save_results_tab(removed, 'Royalty '+folder.name[:15], **({'error_rows': error_rows} if error_rows else {}))
             except Exception as exc:
                 raise RuntimeError(f'Could not save the results tab: {exc}. Payments already saved remain in License Manager. Recovery workbook: {destination}. Report: {report_path}') from exc
             log(f'Results workbook: {workbook.path}')
             log(f'Results tab: {tab}')
+        log(f'Errors needing review: {len(errors)} row(s). Error report: {errors_path}')
+        for row, license_number, code, publisher, detail in errors:
+            log(f'ERROR — Excel row {row}: {license_number} / {code}: {detail}')
         if failure:
             raise RuntimeError(f'{failure}\nPartial results: {folder}') from failure
         return folder

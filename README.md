@@ -23,16 +23,16 @@ During a run, leave the mouse and keyboard alone. **Hold Esc** to stop, or switc
 
 ## Rules
 
-- Publisher is in H; license is in I. Text license numbers retain leading zeroes. Numeric license numbers with a zero-padding number format are padded accordingly.
-- Each license/publisher pair is evaluated once, including duplicates that are not adjacent. A different publisher is processed separately. Publisher matching ignores case and repeated whitespace, but never uses a fuzzy match.
+- Publisher code is in G (PUB or PB1 followed by digits); H is a display name only; license is in I. Text license numbers retain leading zeroes. Numeric license numbers with a zero-padding number format are padded accordingly.
+- Each license/publisher-code pair is evaluated once, including duplicates that are not adjacent. A different publisher code is processed separately; names are never used for matching.
 - Provisional Balance **below −0.01**: remove that pair's rows from the results tab.
 - Balance **−0.01 or greater**: inspect Financials. No Transfer: remove that pair's rows from the results tab.
 - Exactly one Transfer: add **PAYMENT OF ROYALTIES**, with amount **Transfer − 0.01**, and the entered reference. Preserve the form's default Date and Royalty Period, as demonstrated.
 - Select the type in **Transaction Types**, click its OK, then enter the amount/reference. Save with the three OK buttons: transaction, Financial Transactions, license Properties.
 - Verify the updated balance in both Financial Transactions and Details before considering the pair complete.
-- Single-value monetary fields use enlarged grayscale and contrast readings to handle short ClearType numbers. At least two readings must agree, the displayed two-decimal format must be present, and conflicting signs or digits stop processing. Balances are still checked in two separate screen captures. **Read displayed balance** checks an already open Details tab without adding entries or editing the workbook.
-- A missing exact license/publisher match or invalid input row stays in the output for review. An unreadable or unexpected screen stops the run; the program does not guess a financial value or assume that OCR silence means no Transfer.
-- General-tab identity edits use repeated border-free, enlarged readings. License digits are compared exactly after joining OCR digit groups. Publisher names require a unique leading result with at least three identical readings across seven OCR passes after removing the displayed `PUB` code. That result must exactly match the workbook name. Ambiguous readings stop the run; no letters are substituted for license digits and publisher names are not fuzzily matched.
+- Single-value monetary fields use enlarged grayscale and contrast readings to handle short ClearType numbers. Multiple exact readings must agree and preserve the sign and two-decimal format; an unresolved disagreement fails that row's verification. Balances are still checked in two separate screen captures. **Read displayed balance** checks an already open Details tab without adding entries or editing the workbook.
+- A missing exact license/publisher-code match or invalid input row stays in the output for review. Row errors are collected and highlighted blue. The program does not guess a financial value or assume that OCR silence means no Transfer.
+- General-tab identity edits use repeated enlarged readings. Both the license and publisher code must match the workbook, confirmed on two fresh screenshots. Publisher names are not compared, and letters are never substituted for numeric digits.
 - Transfer amounts are reread from the matching row's cell with repeated agreement, including selected blue rows. The amount crop excludes the grid separator so it cannot become an extra digit. Historical non-Transfer amounts do not affect the decision.
 - The transaction-type chooser includes the full first letter and requires two exact reads of PAYMENT OF ROYALTIES at the same row position. The returned entry-type field also includes the complete label before verification.
 - Amounts are entered directly with keyboard input and checked against two separate screen reads. They do not depend on copying from the legacy numeric edit. Other pasted fields that cannot copy back must match two exact displayed readings; clipboard marker text is never accepted as verification.
@@ -74,7 +74,15 @@ Live runs copy the selected source worksheet to a new tab and delete rejected ro
 
 `%LOCALAPPDATA%\RoyaltyEntry\runs\journal.sqlite3` is shared by all copies of the app running under this Windows account. It records completed pairs by license, publisher and normalized reference, even when the program is restarted or a different workbook is selected. A matching completed entry is not added again. Use the same reference for a resumed run. Keep this journal; deleting it removes this protection. Other Windows accounts or computers do not share it automatically.
 
-Immediately before saving a payment, its journal state becomes `pending`. If the connection drops or a save is interrupted, the program will stop rather than add it again. Use **Interrupted entries…** only after closing any unfinished dialogs and reopening Financials to check the actual saved Type, amount and reference. Mark it verified saved, or verified not saved to permit a retry. The program cannot make a database transaction atomic across Remote Desktop and the local journal.
+Immediately before saving a payment, its journal state becomes `pending`. An uncertain save remains pending and is never retried automatically: its rows are marked blue and other records can continue after safe dialog recovery. Use **Interrupted entries…** only after closing any unfinished dialogs and reopening Financials to check the actual saved Type, amount and reference. Mark it verified saved, or verified not saved to permit a retry. The program cannot make a database transaction atomic across Remote Desktop and the local journal.
+
+## Row errors and blue highlights
+
+After a row error, the app records its row number, publisher code and error message, cancels only recognized dialogs with Escape, and verifies the search screen before continuing. Duplicate rows for that failed pair are also retained and highlighted; the pair is not retried within the same run. A disconnected session, lost focus, unknown dialog, journal/storage failure, or an explicit Stop can still end the run when further input would be unsafe.
+
+Failed, invalid and review rows are retained with a light-blue fill in the results tab and recovery workbook, including when other rows are deleted. The source worksheet stays unchanged. In preview mode, highlights are saved only in the recovery copy; no tab or payment is added. Excel is required to apply output highlights.
+
+At completion, a single review window lists all collected errors. `errors.csv` beside `report.csv` contains the same original row numbers, license numbers, publisher codes and messages for troubleshooting. Keep the same reference when restarting so the journal skips completed payments.
 
 If creating the final filtered workbook fails after some payments were saved, those payments remain saved. The source tab stays unchanged; use the recovery workbook if the results tab cannot be saved. Preserve the journal and report, fix the Excel/output problem and rerun with the same source and reference; recorded entries will be skipped and recorded removal decisions reapplied.
 
