@@ -51,7 +51,7 @@ def _process_record(record, driver, reference, journal, live):
         if live:
             journal.put(record, reference, status, detail='No Transfer after scanning the transaction table')
         return status, '', 'No Transfer after scanning the transaction table'
-    amount = royalty_amount(transfer)
+    amount = royalty_amount(transfer, balance)
     if live:
         driver.prepare_payment(amount, reference)
         # The intent is durable before the first of the three save/OK clicks.

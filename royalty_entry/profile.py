@@ -29,6 +29,7 @@ DEFAULT = {
         'entry_type': [895, 512, 1100, 531],
         'entry_amount': [875, 560, 983, 579],
         'entry_reference': [875, 584, 1120, 603],
+        'entry_description': [875, 536, 1120, 555],
         'chooser_title': [699, 244, 1000, 266],
         'chooser_names': [694, 318, 919, 401],
     },
@@ -38,6 +39,7 @@ DEFAULT = {
         'financials_button': [973, 297], 'properties_ok': [1123, 861],
         'financials_focus': [802, 288], 'financials_add': [1394, 270],
         'financials_ok': [1325, 900], 'type_button': [1111, 522],
+        'financials_edit': [1394, 302],
         'chooser_ok': [1126, 875], 'entry_amount': [924, 570],
         'entry_reference': [984, 594], 'entry_ok': [933, 715],
     },
@@ -50,6 +52,14 @@ def load_profile(path: Path):
         raise ValueError('Unsupported calibration profile')
     profile.setdefault('regions', {}).setdefault('result_publisher_numbers',
         list(DEFAULT['regions']['result_publisher_numbers']))
+    regions = profile['regions']
+    if not {'entry_type', 'entry_amount', 'entry_reference'} <= regions.keys() or 'financials_add' not in profile.get('points', {}):
+        raise ValueError('Calibration profile is incomplete')
+    kind = regions['entry_type']; amount = regions['entry_amount']
+    top = (kind[1]+amount[1])//2
+    regions.setdefault('entry_description', [amount[0],top,regions['entry_reference'][2],top+kind[3]-kind[1]])
+    add = profile['points']['financials_add']
+    profile['points'].setdefault('financials_edit', [add[0],add[1]+32])
     for section in ('regions', 'points'):
         if set(DEFAULT[section]) - set(profile.get(section, {})):
             raise ValueError('Calibration profile is incomplete')

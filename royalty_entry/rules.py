@@ -33,9 +33,13 @@ def money(text: str) -> Decimal:
     return result
 
 
-def royalty_amount(transfer: Decimal) -> Decimal:
+def royalty_amount(transfer: Decimal, balance: Decimal | None = None) -> Decimal:
     if not transfer.is_finite() or transfer != transfer.quantize(CENT):
         raise ValueError('Transfer must be a finite amount with whole cents')
+    if transfer == 0:
+        return -CENT
+    if balance == -CENT:
+        return transfer
     return transfer - CENT
 
 

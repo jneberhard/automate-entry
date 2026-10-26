@@ -249,7 +249,7 @@ class RemoteDriver:
         if key == 'search_value':
             from .search_ocr import read_search_number
             return read_search_number(self.ocr, self.crop(image, key))
-        if key == 'entry_reference':
+        if key in {'entry_reference', 'entry_description'}:
             from .text_ocr import read_reference
             return read_reference(self.ocr, self.crop(image, key))
         if key in {'details_balance', 'financials_balance', 'entry_amount'}:
@@ -542,11 +542,20 @@ class RemoteDriver:
             image = self.expect(stage)
             # Hash only the columns; the changing caret elsewhere does not matter.
             right_image = self.publisher_grid(image) if right_key == 'result_publisher_numbers' else self.crop(image, right_key)
+            if left_key == right_key == 'financials_types':
+                # Type-only pages can look identical. Include the complete
+                # transaction rows in the scroll digest without OCR amounts.
+                box = self.profile['regions']['financials_types']
+                end = self.profile['regions']['financials_amounts'][2]
+                right_image = image.crop((max(0,box[0]-210),box[1],end,box[3]))
             digest = hashlib.sha256(self.crop(image, left_key).tobytes() + right_image.tobytes()).digest()
             if digest == previous:
                 return
             previous = digest
             yield image, self.table(image, left_key, right_key)
+            if left_key == right_key == 'financials_types':
+                # Cancel returns focus to Edit; restore the grid before scrolling.
+                self.click(focus, stage)
             self.keys(stage, 'pagedown')
         raise ScreenError('Could not establish the end of the table after 300 pages')
 
@@ -666,18 +675,13 @@ class RemoteDriver:
         self.ready('financials')
         found = []
         seen = set()
-        for image, rows in self.pages('financials', 'financials_focus', 'financials_types', 'financials_amounts'):
+        for image, rows in self.pages('financials', 'financials_focus', 'financials_types', 'financials_types'):
             if not rows:
                 # OCR silence alone is never evidence that no Transfer exists.
                 raise ScreenError('No readable financial rows; leave this license for review')
             for kind, amount in rows:
                 if normalized(kind.text) == 'transfer':
-                    from .amount_ocr import read_table_amount
-                    column = self.crop(image, 'financials_amounts')
-                    center = kind.y+kind.height/2
-                    cell = column.crop((0, max(0, round(center-7)), column.width,
-                                        min(column.height, round(center+8))))
-                    value = read_table_amount(self.ocr, cell)
+                    value = self.read_transfer_entry(kind)
                     # A repeated visible row across overlapping pages is the same transfer.
                     key = (kind.text, str(value))
                     if key not in seen:
@@ -686,6 +690,31 @@ class RemoteDriver:
         if len(found) > 1:
             raise ScreenError('More than one Transfer amount found')
         return found[0] if found else None
+
+    def read_transfer_entry(self, line):
+        """Inspect the existing transaction, then Cancel; never save an edit."""
+        box = self.profile['regions']['financials_types']
+        self.click((round(box[0]+line.x+line.width/2),round(box[1]+line.y+line.height/2)), 'financials')
+        self.click('financials_edit','financials')
+        image = self.ready('entry')
+        try:
+            readings = []
+            for attempt in range(2):
+                if attempt:
+                    self.wait(.35)
+                    image = self.expect('entry')
+                kind = normalized(self.text(image,'entry_type'))
+                description = normalized(self.text(image,'entry_description'))
+                value = money(self.text(image,'entry_amount'))
+                if kind != 'transfer' or description != 'transfer to publisher':
+                    raise ScreenError(f'Expected TRANSFER / Transfer to publisher, read {kind!r} / {description!r}; no transaction was changed')
+                readings.append(value)
+            if readings[0] != readings[1]:
+                raise ScreenError(f'Transfer Amount changed across screenshots: {readings!r}')
+            return readings[0]
+        finally:
+            self.keys('entry','escape')
+            self.ready('financials')
 
     def prepare_payment(self, amount, reference):
         self.click('financials_add', 'financials')

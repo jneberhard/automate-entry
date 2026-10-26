@@ -25,6 +25,19 @@ def read_search_number(ocr,image):
         text=' '.join(line.text for line in ocr.lines(prepared,scale=scale)).strip()
         readings.append(text)
         if re.fullmatch(r'\d[\d\s]*',text):values.append(''.join(text.split()))
+    if len(values) >= 2 and len(set(values)) > 1:
+        confirmation=[]
+        for prepared,scale in search_confirmation_images(image):
+            text=' '.join(line.text for line in ocr.lines(prepared,scale=scale)).strip()
+            readings.append(text)
+            if re.fullmatch(r'\d[\d\s]*',text):confirmation.append(''.join(text.split()))
+        if len(confirmation) == 4 and len(set(confirmation)) == 1 and values.count(confirmation[0]) >= 2:
+            return confirmation[0]
     if len(values) < 2 or len(set(values)) != 1:
         raise ValueError(f'Cannot read one exact search number: {readings!r}')
     return values[0]
+
+
+def search_confirmation_images(image):
+    from .identity_ocr import publisher_images
+    return publisher_images(image)[:4]

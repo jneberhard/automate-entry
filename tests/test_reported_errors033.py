@@ -15,6 +15,7 @@ from royalty_entry.rules import Record
     (['I265484764']*3,None),
 ])
 def test_search_reader_does_not_strip_or_infer_digits(monkeypatch,values,expected):
+    monkeypatch.setattr(search_ocr,'search_confirmation_images',lambda _: [])
     im=Image.new('RGB',(266,20),'white')
     monkeypatch.setattr(search_ocr,'search_images',lambda _: [(im,2)]*3)
     replies=iter(values);o=SimpleNamespace(lines=lambda *a,**k:[Line(next(replies),0,0,60,10)])
