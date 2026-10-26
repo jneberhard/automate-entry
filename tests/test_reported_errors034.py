@@ -17,28 +17,13 @@ def test_confirmed_payment_rules(journal,balance,transfer,expected):
     assert not removed
     assert driver.saved[0][0] == Decimal(expected)
 
-@pytest.mark.parametrize('amounts,description,expected', [(['-.25','-.25'],'TRANSFER to publisher',Decimal('-.25')),(['0','0'],'TRANSFER to publisher',Decimal('0')),(['-.25','-.26'],'TRANSFER to publisher',None),(['-.25','-.25'],'Unrelated description',None)])
-def test_transfer_editor_is_read_twice_and_always_cancelled(amounts,description,expected):
-    d=desktop.RemoteDriver.__new__(desktop.RemoteDriver);d.profile=DEFAULT
-    events=[];values=iter(amounts)
-    d.click=lambda *args:events.append(args)
-    d.ready=lambda stage:None;d.expect=lambda stage:None;d.wait=lambda _:None
-    d.keys=lambda *args:events.append(args)
-    d.text=lambda image,key: next(values) if key=='entry_amount' else ('TRANSFER' if key=='entry_type' else description)
-    line=Line('TRANSFER',0,20,60,10)
-    if expected is None:
-        with pytest.raises(desktop.ScreenError):d.read_transfer_entry(line)
-    else:assert d.read_transfer_entry(line)==expected
-    assert events[-1]==('entry','escape')
-    assert not any('entry_ok' in event for event in events)
-
 @pytest.mark.parametrize('values,expected', [(['0','0'],Decimal('0')),(['-.25','-.25'],Decimal('-.25')),(['-.25','-.26'],None)])
 def test_transfer_page_overlap_uses_confirmed_editor_amounts(values,expected):
     d=desktop.RemoteDriver.__new__(desktop.RemoteDriver)
     d.click=lambda *args:None;d.ready=lambda *args:None
     rows=[(Line('TRANSFER',0,20,60,10),None)]
     d.pages=lambda *args: [(None,rows),(None,rows)]
-    replies=iter(values);d.read_transfer_entry=lambda _:Decimal(next(replies))
+    replies=iter(values);d.read_transfer_amount=lambda image,line:Decimal(next(replies))
     if expected is None:
         with pytest.raises(desktop.ScreenError,match='More than one'):d.transfers()
     else:assert d.transfers()==expected

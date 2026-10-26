@@ -681,7 +681,7 @@ class RemoteDriver:
                 raise ScreenError('No readable financial rows; leave this license for review')
             for kind, amount in rows:
                 if normalized(kind.text) == 'transfer':
-                    value = self.read_transfer_entry(kind)
+                    value = self.read_transfer_amount(image, kind)
                     # A repeated visible row across overlapping pages is the same transfer.
                     key = (kind.text, str(value))
                     if key not in seen:
@@ -691,30 +691,38 @@ class RemoteDriver:
             raise ScreenError('More than one Transfer amount found')
         return found[0] if found else None
 
-    def read_transfer_entry(self, line):
-        """Inspect the existing transaction, then Cancel; never save an edit."""
-        box = self.profile['regions']['financials_types']
-        self.click((round(box[0]+line.x+line.width/2),round(box[1]+line.y+line.height/2)), 'financials')
-        self.click('financials_edit','financials')
-        image = self.ready('entry')
+    def read_transfer_amount(self, image, line):
+        """Read the existing table row without opening or editing transactions."""
+        from .amount_ocr import read_table_amount
+        from .rules import money
+        types = self.profile['regions']['financials_types']
+        amounts = self.profile['regions']['financials_amounts']
+        center = types[1]+line.y+line.height/2
+        top, bottom = max(types[1],round(center-7)), min(types[3],round(center+8))
+        cell = image.crop((amounts[0],top,amounts[2]-2,bottom))
         try:
+            return read_table_amount(self.ocr,cell)
+        except ValueError as exc:
+            # Preserve the full row as OCR context, but accept only a word
+            # geometrically inside Amount. Description/date digits cannot leak in.
+            from PIL import ImageOps
+            row = image.crop((types[0],top,amounts[2]-2,bottom))
+            import numpy as np
+            if np.median(np.asarray(row.convert('L'))) < 128:
+                row = ImageOps.autocontrast(ImageOps.invert(row.convert('RGB')))
+            prepared = ImageOps.expand(row,border=15,fill='white')
             readings = []
-            for attempt in range(2):
-                if attempt:
-                    self.wait(.35)
-                    image = self.expect('entry')
-                kind = normalized(self.text(image,'entry_type'))
-                description = normalized(self.text(image,'entry_description'))
-                value = money(self.text(image,'entry_amount'))
-                if kind != 'transfer' or description != 'transfer to publisher':
-                    raise ScreenError(f'Expected TRANSFER / Transfer to publisher, read {kind!r} / {description!r}; no transaction was changed')
-                readings.append(value)
-            if readings[0] != readings[1]:
-                raise ScreenError(f'Transfer Amount changed across screenshots: {readings!r}')
-            return readings[0]
-        finally:
-            self.keys('entry','escape')
-            self.ready('financials')
+            for scale in (1.5,2,2.5):
+                values = []
+                for word in self.ocr.words(prepared,scale=scale):
+                    x = types[0]+word.x-15
+                    if x >= amounts[0]-1 and x+word.width <= amounts[2]:
+                        try: values.append(money(word.text))
+                        except ValueError: pass
+                if len(values)==1: readings.append(values[0])
+            if len(readings)>=2 and len(set(readings))==1:
+                return readings[0]
+            raise ScreenError(f'Cannot read Transfer Amount from its table row: {readings!r}; {exc}') from exc
 
     def prepare_payment(self, amount, reference):
         self.click('financials_add', 'financials')

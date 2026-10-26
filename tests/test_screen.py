@@ -126,7 +126,7 @@ def test_transfer_rechecks_cell_instead_of_trusting_column_ocr(monkeypatch):
     driver.crop = lambda *a: Image.new('RGB', (58, 80), 'white')
     rows = [(Line('TRANSFER', 0, 20, 60, 10), Line('.o.1F', 0, 20, 30, 10))]
     driver.pages = lambda *a: [(None, rows)]
-    driver.read_transfer_entry = lambda line: Decimal('-.12')
+    driver.read_transfer_amount = lambda image,line: Decimal('-.12')
     assert driver.transfers() == Decimal('-.12')
 
 
