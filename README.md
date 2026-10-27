@@ -41,7 +41,7 @@ During a run, leave the mouse and keyboard alone. **Hold Esc** to stop, or switc
 
 ## Two monitors and calibration
 
-Coordinates are relative to the Remote Desktop window; it can be on either monitor, including a monitor with negative desktop coordinates. Keep the entire Remote Desktop window on screen. Local Excel does not need to be visible while processing because the program reads the selected saved file directly.
+Properties, Financials, Add and Transaction Types are tracked independently from their visible title or tab landmarks. They can cover the License Manager toolbar without losing position; the manager uses its uncovered first three icons. Coordinates are relative to the Remote Desktop window; it can be on either monitor, including a monitor with negative desktop coordinates. Keep the entire Remote Desktop window on screen. Local Excel does not need to be visible while processing because the program reads the selected saved file directly.
 
 The **1907 × 1032** profile is now a logical reference image, not a required monitor or window size. At startup, the app enables Remote Desktop’s **Smart sizing** option, which fits the full remote session into your current window. It does not enlarge the window or require a larger monitor.
 

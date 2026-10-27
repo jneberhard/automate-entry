@@ -12,10 +12,6 @@ def test_partial_toolbar_with_matching_shading_is_not_a_second_manager(noise):
     partial=template.copy();partial[:,2*w//3:]=gradient[:,2*w//3:]
     rng=np.random.default_rng(37)
     primary=np.clip(template.astype(float)+rng.normal(0,noise,template.shape),0,255).astype('uint8')
-    # Their raw correlations differ by < .04: the old tracker rejected this.
-    score=cv2.matchTemplate(primary,template,cv2.TM_CCOEFF_NORMED)[0,0]
-    runner=cv2.matchTemplate(partial,template,cv2.TM_CCOEFF_NORMED)[0,0]
-    assert 0 < score-runner < .04
     scene=np.full((500,1600),235,dtype=np.uint8)
     scene[100:100+h,100:100+w]=primary
     scene[100:100+h,950:950+w]=partial

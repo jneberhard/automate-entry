@@ -92,6 +92,8 @@ class RemoteDriver:
         from .tracking import ToolbarTracker
         self.tracker = ToolbarTracker()
         self.read_tracker = ToolbarTracker()
+        from .dialog_tracking import DialogTracker
+        self.dialog_tracker = DialogTracker()
         self.transform = None
         self.raw_size = None
 
@@ -120,7 +122,9 @@ class RemoteDriver:
         self.handle, self.rect = handle, rect
         self.raw_size = image.size
         previous = self.transform
-        self.transform = self.tracker.locate(image)
+        dialogs = getattr(self, 'dialog_tracker', None)
+        dialog = dialogs.locate(image, previous.scale if previous else None) if dialogs else None
+        self.transform = dialog[0] if dialog else self.tracker.locate(image)
         if not getattr(self, 'module_prepared', True):
             self.prepare_module(image)
             self.module_prepared = True
@@ -133,8 +137,10 @@ class RemoteDriver:
                      'Screen reading and clicks now use this detected scale.')
         if self.transform.scale < .85:
             image = self.native_snapshot()
-            reading = self.read_tracker.locate(image)
-            reading = reading.native_pixels(self.read_tracker.reference)
+            native_dialog = dialogs.locate(image, 1) if dialogs else None
+            reading = native_dialog[0] if native_dialog else self.read_tracker.locate(image)
+            anchor = native_dialog[1] if native_dialog else self.read_tracker.reference
+            reading = reading.native_pixels(anchor)
             if reading.scale < .85:
                 raise ScreenError('Remote Desktop returned a reduced snapshot. Enable clipboard image redirection and retry.')
             return reading.normalize(image, self.profile['window_size'])
@@ -142,7 +148,7 @@ class RemoteDriver:
         # native clipboard captures. A 99.78% toolbar match is fit noise, but
         # resampling it blurs small codes (e.g. PUB485 becomes PUB4S5).
         # Keep the measured transform for clicks; snap only the OCR reading.
-        reading = self.transform.native_pixels(self.tracker.reference)
+        reading = self.transform.native_pixels(dialog[1] if dialog else self.tracker.reference)
         return reading.normalize(image, self.profile['window_size'])
 
     def prepare_module(self, visible):
