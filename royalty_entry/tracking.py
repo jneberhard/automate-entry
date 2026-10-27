@@ -70,9 +70,10 @@ class ToolbarTracker:
             rx, ry = location
             remaining[max(0, ry-height//2):min(remaining.shape[0], ry+height//2+1),
                       max(0, rx-width//2):min(remaining.shape[1], rx+width//2+1)] = -1
-            runner_up = float(remaining.max())
+            _, runner_up, _, runner_location = self.cv.minMaxLoc(remaining)
             measured_scale = width/self.template.shape[1]
-            result = (score, measured_scale, location[0]+left, location[1]+top, width, height, runner_up)
+            result = (score, measured_scale, location[0]+left, location[1]+top, width, height,
+                      runner_up, (runner_location[0]+left, runner_location[1]+top))
             if best is None or result[0] > best[0]:
                 best = result
 
@@ -95,10 +96,35 @@ class ToolbarTracker:
             raise TrackingError('Could not reliably locate the License Manager toolbar in the scaled view. '
                                 'Bring License Manager to the front inside Remote Desktop, with its toolbar visible, and retry.')
         if best[0]-best[6] < .04:
-            raise TrackingError('More than one matching License Manager toolbar is visible. Keep only the intended window in view.')
+            # The long gray/black gradient also occurs on unrelated toolbars
+            # and blank areas. Similar shading alone is not a second toolbar.
+            _, _, left, top, width, height, _, runner = best
+            primary = self._icon_pattern(gray, (left, top), width, height)
+            secondary = self._icon_pattern(gray, runner, width, height)
+            if not primary:
+                raise TrackingError('The License Manager toolbar icon pattern could not be verified. Keep its complete toolbar visible and retry.')
+            if secondary:
+                raise TrackingError('More than one matching License Manager toolbar is visible. Keep only the intended window in view.')
         return self._finish(best)
 
+    def _icon_pattern(self, gray, position, width, height):
+        """Require icon edges throughout the toolbar, independent of shading."""
+        import numpy as np
+        left, top = position
+        candidate = gray[top:top+height, left:left+width]
+        if candidate.shape != (height, width):
+            return False
+        template = self.cv.resize(self.template, (width, height),
+            interpolation=self.cv.INTER_AREA if width < self.template.shape[1] else self.cv.INTER_CUBIC)
+        expected = self.cv.Canny(template, 50, 120)
+        actual = self.cv.dilate(self.cv.Canny(candidate, 50, 120), np.ones((3,3), dtype=np.uint8))
+        for start, end in zip((0, width//3, 2*width//3), (width//3, 2*width//3, width)):
+            mask = expected[:,start:end] > 0
+            if not mask.any() or (actual[:,start:end][mask] > 0).mean() < .55:
+                return False
+        return True
+
     def _finish(self, result):
-        score, scale, left, top, _, _, _ = result
+        score, scale, left, top = result[:4]
         self.previous = ViewTransform(scale, left-scale*self.reference[0], top-scale*self.reference[1], score)
         return self.previous
