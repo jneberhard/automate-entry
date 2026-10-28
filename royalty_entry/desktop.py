@@ -237,7 +237,7 @@ class RemoteDriver:
             # Keep the complete first digit. Some legacy grid themes draw the
             # number closer to the row icon than the calibration reference.
             box[0] = max(0, box[0]-16)
-        if key in {'chooser_names', 'entry_type'}:
+        if key in {'chooser_names', 'entry_type', 'properties_title'}:
             # The legacy list can draw text left of the calibrated inset.
             # Include the complete first letter without including its icon.
             box[0] = max(0, box[0]-4)
@@ -290,7 +290,7 @@ class RemoteDriver:
         title = normalized(self.text(image, 'properties_title'))
         if title.endswith('properties') or (self.record and title.startswith(self.record.license + ' -')):
             if self.record and not title.startswith(self.record.license + ' '):
-                raise ScreenError('Properties belongs to another license')
+                raise ScreenError(f'Properties belongs to another license: expected {self.record.license!r}; read title {title!r}')
             if normalized(self.text(image, 'details_label')).replace(' ', '') == 'provisionalbalance:':
                 return 'details'
             return 'general'
